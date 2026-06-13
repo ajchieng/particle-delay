@@ -1,0 +1,11 @@
+# Build output
+build/
+
+# JUCE is pulled in via a sibling shallow clone (symlink); don't commit its source.
+# Re-create with either:
+#   ln -s ../chieng-saturation/JUCE JUCE
+#   git clone --depth 1 --branch 8.0.13 https://github.com/juce-framework/JUCE.git JUCE
+JUCE/
+
+# macOS
+.DS_Store
