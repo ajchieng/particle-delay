@@ -29,7 +29,7 @@ juce_generate_juce_header(ParticleDelay)
 target_sources(ParticleDelay PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
-    Source/DSP/DelayBuffer.cpp
+    Source/DSP/CapturedHit.cpp
     Source/DSP/TransientDetector.cpp
     Source/DSP/ParticleSystem.cpp)
 
@@ -61,6 +61,9 @@ if(PARTICLEDELAY_BUILD_TESTS)
 
     target_sources(ParticleDelayTests PRIVATE
         Tests/DspTest.cpp
+        Source/PluginProcessor.cpp
+        Source/PluginEditor.cpp
+        Source/DSP/CapturedHit.cpp
         Source/DSP/DelayBuffer.cpp
         Source/DSP/TransientDetector.cpp
         Source/DSP/ParticleSystem.cpp)
@@ -68,11 +71,14 @@ if(PARTICLEDELAY_BUILD_TESTS)
     target_compile_definitions(ParticleDelayTests PRIVATE
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
-        JUCE_STANDALONE_APPLICATION=1)
+        JUCE_STANDALONE_APPLICATION=1
+        PARTICLEDELAY_ENABLE_TEST_HOOKS=1
+        JucePlugin_Name="Particle Delay")
 
     target_link_libraries(ParticleDelayTests
         PRIVATE
-            juce::juce_audio_basics
+            juce::juce_audio_utils
+            juce::juce_dsp
         PUBLIC
             juce::juce_recommended_config_flags
             juce::juce_recommended_warning_flags)

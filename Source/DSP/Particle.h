@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 //==============================================================================
 // A single virtual particle living inside a normalised 2D box.
 //
@@ -22,12 +24,13 @@ struct Particle
     float vx = 0.0f;
     float vy = 0.0f;
 
-    float energy = 1.0f;   // 0..1, scales the echo gain; decays over time
+    float energy = 1.0f;   // 0..1, scales replay gain; decays over time
     float age    = 0.0f;   // control ticks since spawn
 
-    // Control ticks since the burst/hit that spawned this particle. This clock
-    // keeps growing across bounces so every echo reads back the original hit.
-    float delayClockTicks = 0.0f;
+    // Source capture and elapsed time belonging to the burst that spawned this
+    // particle. Several bursts may coexist without sharing playback material.
+    uint64_t sourceId = 0;
+    float elapsedTicks = 0.0f;
 
     bool alive = true;
 };

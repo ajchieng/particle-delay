@@ -9,12 +9,14 @@ launches particles, and every floor bounce creates an echo of that hit.
 |---|---:|---:|---|
 | Mix | 0-100% | 35% | Balance between dry input and echoes |
 | Particles | 1-32 | 8 | Number of particles launched per detected hit |
-| Sync | 1/4 to 1/16T | 1/8 | Time from the hit to the first bounce |
+| Gravity | 0.0625x to 16x | 1.0x | Free-running vertical acceleration |
 | Bounce | 10-99% | 72% | How strongly particles rebound |
 | Scatter | 0-100% | 50% | Stereo spread and release-time variation |
 | Decay | 0.90-0.9999 | 0.995 | How quickly particle energy fades |
-| Delay Min | 1-12000 ms or synced | 60 ms | Minimum audio read-back time |
-| Delay Max | 1-12000 ms or synced | 1200 ms | Maximum audio read-back time |
+| Capture Length | 80-500 ms | 250 ms | Maximum captured body of each hit |
+| Smoothness | 0-100% | 50% | Replay attack and release fades |
+| Delay Min | 1-12000 ms or synced | 60 ms | Start of the audible bounce window |
+| Delay Max | 1-12000 ms or synced | 1200 ms | End of the audible bounce window |
 | Threshold | 0.001-1.0 | 0.15 | Input level required to detect a hit |
 | Output | -24 to +12 dB | 0 dB | Final plugin output level |
 
@@ -40,26 +42,25 @@ Each particle follows a slightly different path and can produce several echoes.
 High values can cause many echoes to overlap. Reduce Mix or Output if the result
 becomes too loud.
 
-## Sync
+## Gravity
 
-Sets the musical duration between the original hit and the first bounce. It
-follows the host tempo. The available divisions are:
+Controls how strongly particles accelerate toward the floor. It is independent
+of host tempo. At `1.0x`, a particle reaches its first impact in approximately
+250 ms from the default spawn height.
 
-| Setting | Meaning |
+| Setting | Feel and approximate first impact |
 |---|---|
-| 1/4 | Quarter note |
-| 1/4T | Quarter-note triplet |
-| 1/8D | Dotted eighth note |
-| 1/8 | Eighth note |
-| 1/8T | Eighth-note triplet |
-| 1/16 | Sixteenth note |
-| 1/16T | Sixteenth-note triplet |
+| 0.0625x | Very floaty, about 1 second |
+| 0.25x | Slow, about 500 ms |
+| 1.0x | Default, about 250 ms |
+| 4.0x | Heavy, about 125 ms |
+| 16x | Very fast, about 63 ms |
 
-- **Longer divisions:** Slower, more spacious bounce patterns.
-- **Shorter divisions:** Faster, tighter repeats.
+- **Lower values:** Slower falls and wider bounce spacing.
+- **Higher values:** Faster falls and tighter, heavier motion.
 
-After the first synced bounce, later bounce timing is produced by the particle
-physics rather than a regular step sequencer.
+Impact time changes with the inverse square root of the multiplier. Every
+impact is produced by the particle physics rather than a regular step sequencer.
 
 ## Bounce
 
@@ -98,19 +99,41 @@ This control is intentionally close to `1.0`; small adjustments can make a large
 difference to the tail. If the effect is too dense, lower Decay before reducing
 Particles.
 
+## Capture Length
+
+Sets the maximum amount of stereo audio stored after each detected transient.
+
+- Every capture records for at least 80 ms.
+- After 80 ms, recording ends when the signal remains below 2% of the captured
+  peak for 20 ms.
+- Sustained material records until it reaches the selected 80-500 ms maximum.
+
+Short settings produce tighter, more percussive repeats. Longer settings retain
+more body from piano notes, vocals, and sustained hits. Up to 16 captured hits
+can coexist; a seventeenth hit recycles the oldest capture and its particle
+train.
+
+## Smoothness
+
+Controls the attack and release fades applied to every captured-hit replay.
+
+- **0%:** Approximately 0.25 ms attack and 3 ms release.
+- **50%:** Balanced transient preservation and click protection.
+- **100%:** Approximately 5 ms attack and 40 ms release.
+
+Lower values preserve sharper attacks. Higher values soften replay edges and
+can make busy material sound more blended.
+
 ## Delay Min
 
-Sets the shortest delay-line read-back allowed for an echo.
+Sets the beginning of the audible bounce-time window. Bounces before this time
+remain visible but do not produce audio.
 
-Normally, each bounce reads back by the total time since the original hit so it
-replays that hit. Delay Min clamps any shorter read-back time.
+- **Lower values:** Allow earlier bounces to replay the captured hit.
+- **Higher values:** Skip the early bounces and begin later in the train.
 
-- **Lower values:** Allow very short, tight echoes.
-- **Higher values:** Prevent extremely short reads and can make the beginning
-  of the effect less immediate.
-
-For predictable source-hit repeats, keep Delay Min below the duration selected
-by Sync.
+For predictable source-hit repeats, keep Delay Min below the first-impact time
+set by Gravity.
 
 The controls below the knob select its operating mode:
 
@@ -121,16 +144,13 @@ The controls below the knob select its operating mode:
 
 ## Delay Max
 
-Sets the longest delay-line read-back allowed for an echo.
+Sets the end of the audible bounce-time window. Later particles continue moving
+visually, but bounces after this time are silent.
 
-As the bounce train continues, the required read-back time grows. Once it
-exceeds Delay Max, it is clamped. At that point later bounces no longer read the
-exact original hit and may read other recent material or silence.
+- **Lower values:** Shorter audible echo trains.
+- **Higher values:** More of the visible bounce train replays the captured hit.
 
-- **Lower values:** Shorter period in which bounces replay the original hit.
-- **Higher values:** More of the visible bounce train can replay the hit.
-
-Use a higher value for long Bounce settings or slower Sync divisions.
+Use a higher value for long Bounce settings or lower Gravity values.
 
 The controls below the knob select its operating mode:
 
@@ -143,7 +163,8 @@ Both delay sync selectors offer `1/64T`, `1/64`, `1/32T`, `1/32`, `1/16T`,
 `1/16`, `1/8T`, `1/8`, `1/4T`, `1/4`, `1/2`, `1/2D`, and `1/1`. The standalone
 app uses 120 BPM when no host tempo is available.
 
-The maximum manual delay and internal delay buffer are 12000 ms.
+If Delay Min is greater than Delay Max, the plugin automatically treats the
+lower value as the window start and the higher value as the window end.
 
 ## Threshold
 
@@ -176,10 +197,12 @@ makes it easier to judge the effect without being biased by a louder result.
   denser cloud.
 - **Bounce + Decay:** Both extend the tail. Bounce changes bounce height and
   timing; Decay changes how quickly repeats become quiet.
-- **Main Sync + Delay Max:** Slower first-bounce Sync settings need a higher
-  Delay Max to keep replaying the original hit for later bounces.
+- **Capture Length + Smoothness:** Longer captures preserve more body; higher
+  Smoothness blends their replay boundaries.
+- **Gravity + Delay Max:** Delay Max must extend past the first impact for that
+  bounce to be audible.
 - **Delay Min/Max Sync:** These two buttons tempo-sync the clamp boundaries;
-  they do not replace the main Sync control that times the first bounce.
+  Gravity remains free-running and independent of host tempo.
 - **Threshold + Particles:** A low Threshold with many particles can create a
   very dense result because many input details launch large bursts.
 - **Mix + Output:** Use Mix for the effect balance and Output for final

@@ -5,52 +5,87 @@
 ParticleSystem::ParticleSystem()
 {
     particles.reserve (maxParticles);
+    pendingBursts.reserve (maxPendingBursts);
 }
 
 void ParticleSystem::prepare (double newSampleRate, double newControlRateHz)
 {
-    sampleRate    = newSampleRate;
-    controlRateHz = newControlRateHz > 0.0 ? newControlRateHz : 250.0;
+    sampleRate = std::isfinite (newSampleRate) && newSampleRate > 0.0
+        ? newSampleRate
+        : 44100.0;
+    controlRateHz = std::isfinite (newControlRateHz) && newControlRateHz > 0.0
+        ? newControlRateHz
+        : 250.0;
     particles.reserve (maxParticles);
+    pendingBursts.reserve (maxPendingBursts);
     reset();
 }
 
 void ParticleSystem::reset()
 {
     particles.clear();
-    pendingReleases = 0;
-    releaseTimer    = 0.0;
-    ticksSinceBurst = 0.0;
-    snapshotCount.store (0, std::memory_order_relaxed);
+    pendingBursts.clear();
+    snapshotCount.store (0, std::memory_order_release);
 }
 
-void ParticleSystem::triggerBurst (int count, float scatter)
+void ParticleSystem::triggerBurst (int count, float scatter, uint64_t sourceId)
 {
-    pendingReleases = juce::jlimit (1, maxParticles, count);
-    releaseScatter  = juce::jlimit (0.0f, 1.0f, scatter);
+    if (sourceId == 0)
+        return;
+
+    if ((int) pendingBursts.size() >= maxPendingBursts)
+        pendingBursts.erase (pendingBursts.begin());
+
+    PendingBurst burst;
+    burst.sourceId = sourceId;
+    burst.remaining = juce::jlimit (1, maxParticles, count);
+    burst.scatter = juce::jlimit (0.0f, 1.0f, scatter);
     // Seed the timer at one interval so the first particle drops on the next tick.
-    releaseTimer    = releaseIntervalTicks (releaseScatter);
-    ticksSinceBurst = 0.0;
+    burst.releaseTimer = releaseIntervalTicks (burst.scatter);
+    pendingBursts.push_back (burst);
 }
 
-void ParticleSystem::releaseOne (float scatter)
+void ParticleSystem::retireSource (uint64_t sourceId)
+{
+    if (sourceId == 0)
+        return;
+
+    pendingBursts.erase (
+        std::remove_if (pendingBursts.begin(), pendingBursts.end(),
+                        [sourceId] (const PendingBurst& burst)
+                        {
+                            return burst.sourceId == sourceId;
+                        }),
+        pendingBursts.end());
+
+    particles.erase (
+        std::remove_if (particles.begin(), particles.end(),
+                        [sourceId] (const Particle& particle)
+                        {
+                            return particle.sourceId == sourceId;
+                        }),
+        particles.end());
+}
+
+void ParticleSystem::releaseOne (const PendingBurst& burst)
 {
     Particle p;
 
     // Dropped from the centre with a horizontal kick that fans the burst out;
     // wider kick as scatter rises. Drop height is fixed (no vertical jitter) so
-    // the fall time stays locked to the tempo-synced gravity.
-    p.x = juce::jlimit (0.0f, 1.0f, 0.5f + randomSigned() * 0.02f * scatter);
+    // a given Gravity value produces consistent first-impact timing.
+    p.x = juce::jlimit (0.0f, 1.0f, 0.5f + randomSigned() * 0.02f * burst.scatter);
     p.y = spawnHeight;
 
-    p.vx = randomSigned() * maxSpread * scatter;
+    p.vx = randomSigned() * maxSpread * burst.scatter;
     p.vy = 0.0f;   // released from rest; gravity does the rest
 
     p.energy        = 1.0f;
     p.age           = 0.0f;
-    // update() increments both clocks during this tick, so start one tick behind
-    // the burst clock to keep the particle aligned after integration.
-    p.delayClockTicks = (float) juce::jmax (0.0, ticksSinceBurst - 1.0);
+    p.sourceId      = burst.sourceId;
+    // update() increments the particle during this tick, so start one tick
+    // behind the burst clock to keep both elapsed times aligned.
+    p.elapsedTicks  = (float) juce::jmax (0.0, burst.elapsedTicks - 1.0);
     p.alive         = true;
 
     if ((int) particles.size() < maxParticles)
@@ -77,26 +112,28 @@ void ParticleSystem::update (float gravity,
                              float delayMaxMs,
                              std::vector<EchoEvent>& echoEvents)
 {
-    // Gravity is computed from host tempo (see PluginProcessor), so allow a wide
-    // range - short divisions at fast tempos need a much stronger pull.
+    // The 0.0625x-16x user range stays comfortably below this defensive cap.
     gravity = juce::jlimit (0.0f, 0.05f, gravity);
     bounce  = juce::jlimit (0.1f,  0.99f, bounce);
     decay   = juce::jlimit (0.90f, 0.9999f, decay);
 
-    ticksSinceBurst += 1.0;
-
-    // ---- Staggered release: trickle out the queued burst -----------------------
-    if (pendingReleases > 0)
+    // ---- Staggered releases: advance every active burst independently ----------
+    for (auto& burst : pendingBursts)
     {
-        const double interval = releaseIntervalTicks (releaseScatter);
-        releaseTimer += 1.0;
-        while (pendingReleases > 0 && releaseTimer >= interval)
+        burst.elapsedTicks += 1.0;
+        const double interval = releaseIntervalTicks (burst.scatter);
+        burst.releaseTimer += 1.0;
+        while (burst.remaining > 0 && burst.releaseTimer >= interval)
         {
-            releaseTimer -= interval;
-            releaseOne (releaseScatter);
-            --pendingReleases;
+            burst.releaseTimer -= interval;
+            releaseOne (burst);
+            --burst.remaining;
         }
     }
+    pendingBursts.erase (
+        std::remove_if (pendingBursts.begin(), pendingBursts.end(),
+                        [] (const PendingBurst& burst) { return burst.remaining <= 0; }),
+        pendingBursts.end());
 
     // ---- Integrate motion ------------------------------------------------------
     for (auto& p : particles)
@@ -113,7 +150,7 @@ void ParticleSystem::update (float gravity,
 
         p.energy        *= decay;
         p.age           += 1.0f;
-        p.delayClockTicks += 1.0f;
+        p.elapsedTicks += 1.0f;
 
         // Side edges: no walls. Clamp position so particles don't fly off; pan
         // just saturates hard left/right. No reflection, no echo.
@@ -153,11 +190,14 @@ void ParticleSystem::update (float gravity,
     const int n = juce::jmin ((int) particles.size(), snapshotCapacity);
     for (int i = 0; i < n; ++i)
     {
-        snapshot[(size_t) i].x      = particles[(size_t) i].x;
-        snapshot[(size_t) i].y      = particles[(size_t) i].y;
-        snapshot[(size_t) i].energy = particles[(size_t) i].energy;
+        snapshot[(size_t) i].x.store (particles[(size_t) i].x,
+                                      std::memory_order_relaxed);
+        snapshot[(size_t) i].y.store (particles[(size_t) i].y,
+                                      std::memory_order_relaxed);
+        snapshot[(size_t) i].energy.store (particles[(size_t) i].energy,
+                                           std::memory_order_relaxed);
     }
-    snapshotCount.store (n, std::memory_order_relaxed);
+    snapshotCount.store (n, std::memory_order_release);
 }
 
 void ParticleSystem::createEchoEvent (const Particle& p,
@@ -170,16 +210,16 @@ void ParticleSystem::createEchoEvent (const Particle& p,
     if ((int) out.size() >= (int) out.capacity())
         return;
 
-    const float dMin = juce::jmin (delayMinMs, delayMaxMs);
-    const float dMax = juce::jmax (delayMinMs, delayMaxMs);
+    const float windowStart = juce::jmin (delayMinMs, delayMaxMs);
+    const float windowEnd = juce::jmax (delayMinMs, delayMaxMs);
+    const float elapsedMs = p.elapsedTicks * 1000.0f / (float) controlRateHz;
+    if (elapsedMs < windowStart || elapsedMs > windowEnd)
+        return;
 
     EchoEvent e;
+    e.sourceId = p.sourceId;
     e.pan = juce::jlimit (0.0f, 1.0f, p.x);
-
-    // Delay time = elapsed time since the source hit. At every bounce, reading
-    // this far back lands on that hit instead of on the previous bounce.
-    const float elapsedMs = p.delayClockTicks * 1000.0f / (float) controlRateHz;
-    e.delayMs = juce::jlimit (dMin, dMax, elapsedMs);
+    e.elapsedMs = elapsedMs;
 
     e.gain = juce::jlimit (0.0f, 1.0f, p.energy);
 
@@ -192,10 +232,14 @@ void ParticleSystem::createEchoEvent (const Particle& p,
 int ParticleSystem::getSnapshot (ParticleSnapshot* dest, int maxOut) const
 {
     const int n = juce::jlimit (0, maxOut,
-                                juce::jmin (snapshotCount.load (std::memory_order_relaxed),
+                                juce::jmin (snapshotCount.load (std::memory_order_acquire),
                                             snapshotCapacity));
     for (int i = 0; i < n; ++i)
-        dest[i] = snapshot[(size_t) i];
+    {
+        dest[i].x = snapshot[(size_t) i].x.load (std::memory_order_relaxed);
+        dest[i].y = snapshot[(size_t) i].y.load (std::memory_order_relaxed);
+        dest[i].energy = snapshot[(size_t) i].energy.load (std::memory_order_relaxed);
+    }
 
     return n;
 }

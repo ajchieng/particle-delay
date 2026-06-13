@@ -1,9 +1,10 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <array>
 #include <vector>
 
-#include "DSP/DelayBuffer.h"
+#include "DSP/CapturedHit.h"
 #include "DSP/TransientDetector.h"
 #include "DSP/ParticleSystem.h"
 #include "DSP/EchoEvent.h"
@@ -14,11 +15,11 @@
 //
 // A physics-inspired delay. Input transients release virtual particles from the
 // centre of a 2D box; gravity drops them onto the floor and they bounce there,
-// losing energy each time. Every floor bounce fires a short echo "grain" read
-// from a delay line. The particle's state at the moment of the bounce decides
-// where, how loud, how far back, and how bright each echo is:
+// losing energy each time. Every floor bounce replays the stereo transient that
+// spawned that particle. The particle state decides where, how loud, and how
+// bright each replay is:
 //
-//   x position   -> pan          time since hit -> delay time
+//   x position   -> stereo pan   elapsed time -> audible bounce window
 //   energy       -> gain         impact speed -> brightness (low-pass cutoff)
 //
 // The particle physics runs at a fixed 250 Hz control rate, independent of the
@@ -69,37 +70,47 @@ public:
         return particleSystem.getSnapshot (dest, maxOut);
     }
 
+   #if defined (PARTICLEDELAY_ENABLE_TEST_HOOKS)
+    int getActiveReplayVoiceCountForTests() const noexcept
+    {
+        return activeVoiceCount;
+    }
+   #endif
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     //==========================================================================
-    // A live echo: a windowed grain that reads a fragment from the delay line,
-    // tone-shaped by a one-pole low-pass and placed in the stereo field.
-    struct EchoGrain
+    // A live replay of one captured stereo transient.
+    struct ReplayVoice
     {
-        float delayMs   = 100.0f;
-        float gain      = 1.0f;
-        float leftGain  = 0.707f;   // equal-power pan, precomputed at trigger
-        float rightGain = 0.707f;
-
+        uint64_t sourceId = 0;
+        int captureSlot = -1;
+        float gain = 1.0f;
+        float pan = 0.5f;
+        float lpCoeff = 1.0f;
+        float lpStateLeft = 0.0f;
+        float lpStateRight = 0.0f;
+        float lastLevel = 0.0f;
         int currentSample = 0;
-        int totalSamples  = 1;
-
-        float lpCoeff = 1.0f;       // brightness low-pass (one-pole)
-        float lpState = 0.0f;
-
-        bool alive = true;
+        int attackSamples = 1;
+        int releaseSamples = 1;
     };
 
-    void triggerGrain (const EchoEvent& e);
+    void triggerReplay (const EchoEvent& e, float smoothness);
+    void retireSource (uint64_t sourceId);
+    void removeReplayVoice (int index);
 
     //==========================================================================
-    DelayBuffer       delayBuffer;
+    CapturedHitBank   capturedHits;
+    StereoSafetyLimiter wetLimiter;
     TransientDetector transientDetector;
     ParticleSystem    particleSystem;
 
     std::vector<EchoEvent> echoEvents;   // refilled each control tick
-    std::vector<EchoGrain> activeGrains;
+    static constexpr int maxReplayVoices = 256;
+    std::array<ReplayVoice, maxReplayVoices> activeVoices;
+    int activeVoiceCount = 0;
 
     juce::SmoothedValue<float> mixSmoothed;
     juce::SmoothedValue<float> outputSmoothed;
@@ -110,11 +121,6 @@ private:
     double samplesPerControlTick = 192.0;
     double controlAccumulator    = 0.0;
 
-    int grainLengthSamples = 1;
-
-    static constexpr int maxGrains   = 256;
-    static constexpr float grainMs   = 45.0f;
-    static constexpr float wetSafety = 0.9f;   // headroom before the wet soft-clip
     static constexpr float maxDelayMs = 12000.0f;
 
     double currentSampleRate = 44100.0;

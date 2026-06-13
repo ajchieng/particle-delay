@@ -2,15 +2,17 @@
 
 namespace
 {
-    // Knob order: two rows of five.
+    // Knob order: three rows of four.
     struct KnobDef { const char* id; const char* name; };
-    const std::array<KnobDef, 10> knobDefs {{
+    const std::array<KnobDef, 12> knobDefs {{
         { "MIX",          "Mix"       },
         { "PARTICLES",    "Particles" },
-        { "SYNC",         "Sync"      },
+        { "GRAVITY",      "Gravity"   },
         { "BOUNCE",       "Bounce"    },
         { "SCATTER",      "Scatter"   },
         { "DECAY",        "Decay"     },
+        { "CAPTURE_MAX_MS", "Capture Length" },
+        { "SMOOTHNESS",     "Smoothness" },
         { "DELAY_MIN_MS", "Delay Min" },
         { "DELAY_MAX_MS", "Delay Max" },
         { "THRESHOLD",    "Threshold" },
@@ -97,7 +99,7 @@ ParticleDelayAudioProcessorEditor::ParticleDelayAudioProcessorEditor (ParticleDe
     addDelaySyncControl (delaySyncControls[0], "DELAY_MIN_SYNC", "DELAY_MIN_DIV");
     addDelaySyncControl (delaySyncControls[1], "DELAY_MAX_SYNC", "DELAY_MAX_DIV");
 
-    setSize (780, 500);
+    setSize (780, 620);
 }
 
 ParticleDelayAudioProcessorEditor::~ParticleDelayAudioProcessorEditor() = default;
@@ -163,9 +165,9 @@ void ParticleDelayAudioProcessorEditor::resized()
     particleView.setBounds (area.removeFromTop (170));
     area.removeFromTop (10);
 
-    // Two rows of five knobs.
-    const int rows = 2;
-    const int cols = 5;
+    // Three rows of four knobs.
+    const int rows = 3;
+    const int cols = 4;
     const int rowH = area.getHeight() / rows;
 
     for (int row = 0; row < rows; ++row)
@@ -180,10 +182,10 @@ void ParticleDelayAudioProcessorEditor::resized()
 
             knobs[(size_t) index].label.setBounds (cell.removeFromTop (16));
 
-            if (index == 6 || index == 7)
+            if (index == 8 || index == 9)
             {
                 auto syncArea = cell.removeFromBottom (24);
-                auto& syncControl = delaySyncControls[(size_t) (index - 6)];
+                auto& syncControl = delaySyncControls[(size_t) (index - 8)];
                 syncControl.syncButton.setBounds (syncArea.removeFromLeft (54));
                 syncArea.removeFromLeft (3);
                 syncControl.divisionBox.setBounds (syncArea);

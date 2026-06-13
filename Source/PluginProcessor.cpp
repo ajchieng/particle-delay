@@ -6,19 +6,17 @@
 
 namespace
 {
-    // Tempo-sync divisions for the first bounce, in quarter-note units. The
-    // choice parameter's options and the processBlock lookup share this table.
-    struct SyncDivision { const char* label; double quarters; };
-    const std::array<SyncDivision, 7> kSyncDivisions {{
-        { "1/4",   1.0          },
-        { "1/4T",  2.0 / 3.0    },
-        { "1/8D",  0.75         },
-        { "1/8",   0.5          },
-        { "1/8T",  1.0 / 3.0    },
-        { "1/16",  0.25         },
-        { "1/16T", 1.0 / 6.0    },
+    // Keep the original Sync choices and default intact so old sessions and
+    // host automation mappings remain loadable. The parameter is no longer read.
+    const std::array<const char*, 7> kLegacySyncChoices {{
+        "1/4", "1/4T", "1/8D", "1/8", "1/8T", "1/16", "1/16T"
     }};
-    constexpr int kDefaultSyncIndex = 3;   // 1/8
+    constexpr int kDefaultSyncIndex = 3;
+
+    float finiteOrZero (float value)
+    {
+        return std::isfinite (value) ? value : 0.0f;
+    }
 }
 
 //==============================================================================
@@ -51,14 +49,25 @@ ParticleDelayAudioProcessor::createParameterLayout()
         ParameterID { "PARTICLES", 1 }, "Particles", 1, 32, 8));
 
     {
-        // Tempo-sync division: the first bounce lands exactly on this note value
-        // (host BPM drives the fall speed). Replaces the old free Gravity control.
         StringArray syncChoices;
-        for (const auto& d : kSyncDivisions)
-            syncChoices.add (d.label);
+        for (const auto* choice : kLegacySyncChoices)
+            syncChoices.add (choice);
 
         layout.add (std::make_unique<AudioParameterChoice> (
             ParameterID { "SYNC", 1 }, "Sync", syncChoices, kDefaultSyncIndex));
+    }
+
+    {
+        NormalisableRange<float> r (ParticleSystem::minimumGravityMultiplier,
+                                    ParticleSystem::maximumGravityMultiplier);
+        r.setSkewForCentre (ParticleSystem::defaultGravityMultiplier);
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { "GRAVITY", 1 }, "Gravity", r,
+            ParticleSystem::defaultGravityMultiplier,
+            AudioParameterFloatAttributes()
+                .withLabel ("x")
+                .withStringFromValueFunction (
+                    [] (float value, int) { return String (value, 2) + "x"; })));
     }
 
     layout.add (std::make_unique<AudioParameterFloat> (
@@ -77,6 +86,20 @@ ParticleDelayAudioProcessor::createParameterLayout()
         layout.add (std::make_unique<AudioParameterFloat> (
             ParameterID { "DECAY", 1 }, "Decay", r, 0.995f));
     }
+
+    {
+        NormalisableRange<float> r (CapturedHitBank::minimumCaptureMs,
+                                    CapturedHitBank::maximumCaptureMs);
+        r.setSkewForCentre (250.0f);
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { "CAPTURE_MAX_MS", 1 }, "Capture Length", r, 250.0f,
+            AudioParameterFloatAttributes().withStringFromValueFunction (ms)));
+    }
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "SMOOTHNESS", 1 }, "Smoothness",
+        NormalisableRange<float> (0.0f, 1.0f), 0.5f,
+        AudioParameterFloatAttributes().withStringFromValueFunction (pct)));
 
     {
         NormalisableRange<float> r (1.0f, maxDelayMs);
@@ -127,24 +150,24 @@ void ParticleDelayAudioProcessor::prepareToPlay (double sampleRate, int samplesP
 {
     juce::ignoreUnused (samplesPerBlock);
 
-    currentSampleRate = sampleRate;
+    currentSampleRate = std::isfinite (sampleRate) && sampleRate > 0.0
+        ? sampleRate
+        : 44100.0;
 
-    delayBuffer.prepare (sampleRate, 2, maxDelayMs);
-    transientDetector.prepare (sampleRate);
-    particleSystem.prepare (sampleRate, controlRateHz);
+    capturedHits.prepare (currentSampleRate);
+    wetLimiter.prepare (currentSampleRate);
+    transientDetector.prepare (currentSampleRate);
+    particleSystem.prepare (currentSampleRate, controlRateHz);
 
-    samplesPerControlTick = sampleRate / controlRateHz;
+    samplesPerControlTick = juce::jmax (1.0, currentSampleRate / controlRateHz);
     controlAccumulator    = 0.0;
-
-    grainLengthSamples = juce::jmax (1, (int) std::round (grainMs * 0.001 * sampleRate));
 
     echoEvents.clear();
     echoEvents.reserve (ParticleSystem::maxParticles * 2 + 16);
-    activeGrains.clear();
-    activeGrains.reserve (maxGrains + 16);
+    activeVoiceCount = 0;
 
-    mixSmoothed.reset (sampleRate, 0.02);
-    outputSmoothed.reset (sampleRate, 0.02);
+    mixSmoothed.reset (currentSampleRate, 0.02);
+    outputSmoothed.reset (currentSampleRate, 0.02);
     mixSmoothed.setCurrentAndTargetValue (apvts.getRawParameterValue ("MIX")->load());
     outputSmoothed.setCurrentAndTargetValue (
         juce::Decibels::decibelsToGain (apvts.getRawParameterValue ("OUTPUT")->load()));
@@ -152,10 +175,11 @@ void ParticleDelayAudioProcessor::prepareToPlay (double sampleRate, int samplesP
 
 void ParticleDelayAudioProcessor::releaseResources()
 {
-    delayBuffer.reset();
+    capturedHits.reset();
+    wetLimiter.reset();
     transientDetector.reset();
     particleSystem.reset();
-    activeGrains.clear();
+    activeVoiceCount = 0;
     echoEvents.clear();
 }
 
@@ -172,32 +196,66 @@ bool ParticleDelayAudioProcessor::isBusesLayoutSupported (const BusesLayout& lay
 }
 
 //==============================================================================
-void ParticleDelayAudioProcessor::triggerGrain (const EchoEvent& e)
+void ParticleDelayAudioProcessor::triggerReplay (const EchoEvent& e, float smoothness)
 {
-    if ((int) activeGrains.size() >= maxGrains)
-        return;   // drop rather than allocate / overload
+    if (! capturedHits.isActive (e.sourceId))
+        return;
 
-    EchoGrain g;
-    g.delayMs = e.delayMs;
-    g.gain    = e.gain;
+    ReplayVoice voice;
+    voice.sourceId = e.sourceId;
+    voice.captureSlot = capturedHits.getSlotForSource (e.sourceId);
+    if (voice.captureSlot < 0)
+        return;
+    voice.gain = e.gain;
+    voice.pan = juce::jlimit (0.0f, 1.0f, e.pan);
 
-    const float pan = juce::jlimit (0.0f, 1.0f, e.pan);
-    g.leftGain  = std::cos (pan * juce::MathConstants<float>::halfPi);
-    g.rightGain = std::sin (pan * juce::MathConstants<float>::halfPi);
-
-    g.currentSample = 0;
-    g.totalSamples  = grainLengthSamples;
+    smoothness = juce::jlimit (0.0f, 1.0f, smoothness);
+    const float attackMs = juce::jmap (smoothness, 0.25f, 5.0f);
+    const float releaseMs = juce::jmap (smoothness, 3.0f, 40.0f);
+    voice.attackSamples = juce::jmax (
+        1, (int) std::round (attackMs * 0.001 * currentSampleRate));
+    voice.releaseSamples = juce::jmax (
+        1, (int) std::round (releaseMs * 0.001 * currentSampleRate));
 
     // Brightness -> one-pole low-pass cutoff (exponential 600 Hz .. 16 kHz).
     const float fc = 600.0f * std::pow (16000.0f / 600.0f, juce::jlimit (0.0f, 1.0f, e.brightness));
     const float fcClamped = juce::jmin (fc, (float) currentSampleRate * 0.45f);
-    g.lpCoeff = juce::jlimit (0.0f, 1.0f,
-                              1.0f - std::exp (-juce::MathConstants<float>::twoPi
-                                               * fcClamped / (float) currentSampleRate));
-    g.lpState = 0.0f;
-    g.alive   = true;
+    voice.lpCoeff = juce::jlimit (
+        0.0f, 1.0f,
+        1.0f - std::exp (-juce::MathConstants<float>::twoPi
+                         * fcClamped / (float) currentSampleRate));
 
-    activeGrains.push_back (g);
+    if (activeVoiceCount < maxReplayVoices)
+    {
+        activeVoices[(size_t) activeVoiceCount++] = voice;
+        return;
+    }
+
+    int quietest = 0;
+    for (int i = 1; i < activeVoiceCount; ++i)
+        if (activeVoices[(size_t) i].lastLevel
+            < activeVoices[(size_t) quietest].lastLevel)
+            quietest = i;
+    activeVoices[(size_t) quietest] = voice;
+}
+
+void ParticleDelayAudioProcessor::removeReplayVoice (int index)
+{
+    jassert (index >= 0 && index < activeVoiceCount);
+    --activeVoiceCount;
+    if (index != activeVoiceCount)
+        activeVoices[(size_t) index] = activeVoices[(size_t) activeVoiceCount];
+}
+
+void ParticleDelayAudioProcessor::retireSource (uint64_t sourceId)
+{
+    if (sourceId == 0)
+        return;
+
+    particleSystem.retireSource (sourceId);
+    for (int i = activeVoiceCount - 1; i >= 0; --i)
+        if (activeVoices[(size_t) i].sourceId == sourceId)
+            removeReplayVoice (i);
 }
 
 void ParticleDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
@@ -213,20 +271,23 @@ void ParticleDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     const float bounce        = apvts.getRawParameterValue ("BOUNCE")->load();
     const float scatter       = apvts.getRawParameterValue ("SCATTER")->load();
     const float decay         = apvts.getRawParameterValue ("DECAY")->load();
+    const float gravityAmount = apvts.getRawParameterValue ("GRAVITY")->load();
+    const float captureMaxMs  = apvts.getRawParameterValue ("CAPTURE_MAX_MS")->load();
+    const float smoothness    = apvts.getRawParameterValue ("SMOOTHNESS")->load();
     const float threshold     = apvts.getRawParameterValue ("THRESHOLD")->load();
 
     mixSmoothed.setTargetValue (apvts.getRawParameterValue ("MIX")->load());
     outputSmoothed.setTargetValue (
         juce::Decibels::decibelsToGain (apvts.getRawParameterValue ("OUTPUT")->load()));
 
-    // Tempo sync: drive gravity so a centre-drop reaches the floor in exactly the
-    // chosen note division at the host tempo (the "first bounce" lands on the grid).
+    // Host tempo is used only by the optional Delay Min/Max window sync.
     double bpm = 120.0;   // fallback when the host gives no tempo (e.g. standalone)
     if (auto* ph = getPlayHead())
         if (auto pos = ph->getPosition())
             if (auto hostBpm = pos->getBpm())
-                bpm = *hostBpm;
-    bpm = juce::jmax (20.0, bpm);
+                if (std::isfinite (*hostBpm))
+                    bpm = *hostBpm;
+    bpm = juce::jlimit (20.0, 999.0, bpm);
 
     const bool delayMinSync = apvts.getRawParameterValue ("DELAY_MIN_SYNC")->load() >= 0.5f;
     const bool delayMaxSync = apvts.getRawParameterValue ("DELAY_MAX_SYNC")->load() >= 0.5f;
@@ -238,26 +299,32 @@ void ParticleDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
         ? DelaySync::milliseconds ((int) apvts.getRawParameterValue ("DELAY_MAX_DIV")->load(), bpm)
         : apvts.getRawParameterValue ("DELAY_MAX_MS")->load();
 
-    const int syncIndex = juce::jlimit (0, (int) kSyncDivisions.size() - 1,
-                                        (int) apvts.getRawParameterValue ("SYNC")->load());
-    const double fallSeconds = kSyncDivisions[(size_t) syncIndex].quarters * 60.0 / bpm;
-    const float  gravity     = ParticleSystem::gravityForFallTime (fallSeconds, controlRateHz,
-                                                                   ParticleSystem::spawnHeight);
+    const float gravity = ParticleSystem::gravityForMultiplier (
+        gravityAmount, controlRateHz, ParticleSystem::spawnHeight);
 
     for (int sample = 0; sample < numSamples; ++sample)
     {
-        const float inL = buffer.getSample (0, sample);
-        const float inR = numChannels > 1 ? buffer.getSample (1, sample) : inL;
+        const float inL = finiteOrZero (buffer.getSample (0, sample));
+        const float inR = numChannels > 1
+            ? finiteOrZero (buffer.getSample (1, sample))
+            : inL;
 
-        // 1) Record the dry input into the delay line.
-        delayBuffer.writeFrame (inL, inR);
-
-        // 2) Onset detection -> queue a burst (released gradually by update()).
+        // 1) Onset detection -> start a stereo capture and its particle burst.
         if (transientDetector.processSample (inL, inR, threshold))
-            particleSystem.triggerBurst ((int) particleCount, scatter);
+        {
+            // End mature older hits before the new onset sample is written, so
+            // dense rhythmic material does not merge adjacent transients.
+            capturedHits.finishMatureCaptures();
+            const auto started = capturedHits.startCapture (captureMaxMs);
+            retireSource (started.retiredSourceId);
+            particleSystem.triggerBurst ((int) particleCount, scatter, started.sourceId);
+        }
 
-        // 3) Advance the particle physics at the fixed control rate; each wall
-        //    hit produces an EchoEvent that we turn into a grain.
+        // Every active recording capture receives this frame. A capture created
+        // above therefore includes the onset sample itself.
+        capturedHits.processSample (inL, inR);
+
+        // 2) Advance physics; audible-window bounces become replay voices.
         controlAccumulator += 1.0;
         while (controlAccumulator >= samplesPerControlTick)
         {
@@ -267,40 +334,69 @@ void ParticleDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
             particleSystem.update (gravity, bounce, decay, delayMinMs, delayMaxMs, echoEvents);
 
             for (const auto& e : echoEvents)
-                triggerGrain (e);
+                triggerReplay (e, smoothness);
         }
 
-        // 4) Render every active grain into the wet bus.
+        // 3) Render every active captured-hit replay into the wet bus.
         float wetL = 0.0f;
         float wetR = 0.0f;
 
-        for (auto& g : activeGrains)
+        int renderedVoiceCount = 0;
+        int voiceIndex = 0;
+        while (voiceIndex < activeVoiceCount)
         {
-            const float phase = (float) g.currentSample / (float) g.totalSamples;
-            const float env   = std::sin (phase * juce::MathConstants<float>::pi); // Hann-ish window
+            auto& voice = activeVoices[(size_t) voiceIndex];
+            float sourceL = 0.0f;
+            float sourceR = 0.0f;
+            int available = 0;
+            bool recording = false;
+            if (! capturedHits.getHandleFrame (
+                    voice.captureSlot, voice.sourceId, voice.currentSample,
+                    sourceL, sourceR, available, recording))
+            {
+                removeReplayVoice (voiceIndex);
+                continue;
+            }
 
-            const float echoL = delayBuffer.readSample (0, g.delayMs);
-            const float echoR = delayBuffer.readSample (1, g.delayMs);
-            const float mono  = 0.5f * (echoL + echoR);
+            if (voice.currentSample >= available)
+            {
+                if (! recording)
+                {
+                    removeReplayVoice (voiceIndex);
+                    continue;
+                }
+                ++voiceIndex;
+                continue;
+            }
 
-            // Brightness low-pass.
-            g.lpState += g.lpCoeff * (mono - g.lpState);
-            const float voiced = g.lpState * g.gain * env;
+            const float envelope = CapturedHitPlayback::envelope (
+                voice.currentSample, available, recording,
+                voice.attackSamples, voice.releaseSamples);
 
-            wetL += voiced * g.leftGain;
-            wetR += voiced * g.rightGain;
+            float pannedL = 0.0f;
+            float pannedR = 0.0f;
+            CapturedHitPlayback::placeStereo (
+                sourceL, sourceR, voice.pan, pannedL, pannedR);
 
-            if (++g.currentSample >= g.totalSamples)
-                g.alive = false;
+            voice.lpStateLeft += voice.lpCoeff * (pannedL - voice.lpStateLeft);
+            voice.lpStateRight += voice.lpCoeff * (pannedR - voice.lpStateRight);
+
+            const float voiceGain = voice.gain * envelope;
+            const float renderedL = voice.lpStateLeft * voiceGain;
+            const float renderedR = voice.lpStateRight * voiceGain;
+            wetL += renderedL;
+            wetR += renderedR;
+            voice.lastLevel = juce::jmax (std::abs (renderedL), std::abs (renderedR));
+            ++voice.currentSample;
+            ++renderedVoiceCount;
+            ++voiceIndex;
         }
 
-        activeGrains.erase (std::remove_if (activeGrains.begin(), activeGrains.end(),
-                                            [] (const EchoGrain& g) { return ! g.alive; }),
-                            activeGrains.end());
-
-        // Soft-clip the wet bus so dense echo clouds stay polite (dry stays clean).
-        wetL = std::tanh (wetL * wetSafety);
-        wetR = std::tanh (wetR * wetSafety);
+        const float overlapGain = 1.0f
+            / std::sqrt ((float) juce::jmax (1, renderedVoiceCount));
+        wetL *= overlapGain;
+        wetR *= overlapGain;
+        wetLimiter.process (wetL, wetR);
 
         const float mix     = mixSmoothed.getNextValue();
         const float outGain = outputSmoothed.getNextValue();
@@ -309,13 +405,14 @@ void ParticleDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
         {
             const float outL = (inL * (1.0f - mix) + wetL * mix) * outGain;
             const float outR = (inR * (1.0f - mix) + wetR * mix) * outGain;
-            buffer.setSample (0, sample, outL);
-            buffer.setSample (1, sample, outR);
+            buffer.setSample (0, sample, finiteOrZero (outL));
+            buffer.setSample (1, sample, finiteOrZero (outR));
         }
         else
         {
             const float wetMono = 0.5f * (wetL + wetR);
-            buffer.setSample (0, sample, (inL * (1.0f - mix) + wetMono * mix) * outGain);
+            const float output = (inL * (1.0f - mix) + wetMono * mix) * outGain;
+            buffer.setSample (0, sample, finiteOrZero (output));
         }
     }
 }
@@ -337,7 +434,14 @@ void ParticleDelayAudioProcessor::setStateInformation (const void* data, int siz
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (apvts.state.getType()))
-            apvts.replaceState (juce::ValueTree::fromXml (*xml));
+        {
+            auto state = juce::ValueTree::fromXml (*xml);
+            if (! state.hasProperty ("GRAVITY"))
+                state.setProperty ("GRAVITY",
+                                   ParticleSystem::defaultGravityMultiplier,
+                                   nullptr);
+            apvts.replaceState (state);
+        }
 }
 
 //==============================================================================

@@ -2,7 +2,9 @@
 
 void TransientDetector::prepare (double newSampleRate)
 {
-    sampleRate = newSampleRate;
+    sampleRate = std::isfinite (newSampleRate) && newSampleRate > 0.0
+        ? newSampleRate
+        : 44100.0;
 
     // ~120 ms release on the peak follower: the envelope snaps up on a hit and
     // decays back below the threshold so the next hit reads as a fresh rising edge.

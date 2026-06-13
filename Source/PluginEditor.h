@@ -9,8 +9,7 @@
 //==============================================================================
 // Live 2D view of the particle box. On a timer it pulls a snapshot of particle
 // positions from the processor (lock-free) and draws each as a glowing dot whose
-// size/opacity follow its remaining energy. Left/right maps to pan, top/bottom
-// to delay time - so you literally watch the echoes being scattered.
+// size/opacity follow its remaining energy. Left/right maps to stereo placement.
 class ParticleView : public juce::Component,
                      private juce::Timer
 {
@@ -33,7 +32,7 @@ private:
 };
 
 //==============================================================================
-// 10 rotary controls, two delay-sync sections, and the particle visualiser.
+// 12 rotary controls, two delay-sync sections, and the particle visualiser.
 class ParticleDelayAudioProcessorEditor : public juce::AudioProcessorEditor
 {
 public:
@@ -73,7 +72,7 @@ private:
     juce::Label   titleLabel;
     ParticleView  particleView;
 
-    static constexpr int numKnobs = 10;
+    static constexpr int numKnobs = 12;
     std::array<Knob, numKnobs> knobs;
     std::array<DelaySyncControl, 2> delaySyncControls;
 
