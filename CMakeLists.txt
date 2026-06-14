@@ -29,6 +29,7 @@ juce_generate_juce_header(ParticleDelay)
 target_sources(ParticleDelay PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/ParticleLookAndFeel.cpp
     Source/DSP/CapturedHit.cpp
     Source/DSP/TransientDetector.cpp
     Source/DSP/ParticleSystem.cpp)
@@ -63,6 +64,7 @@ if(PARTICLEDELAY_BUILD_TESTS)
         Tests/DspTest.cpp
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
+        Source/ParticleLookAndFeel.cpp
         Source/DSP/CapturedHit.cpp
         Source/DSP/DelayBuffer.cpp
         Source/DSP/TransientDetector.cpp

@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include <memory>
 #include <vector>
 
 #include "../Source/PluginProcessor.h"
@@ -30,12 +31,39 @@ namespace
         if (! condition)
             ++failures;
     }
+
+    void inspectLabels (juce::Component& component, int& labelCount, int& darkLabelCount)
+    {
+        if (auto* label = dynamic_cast<juce::Label*> (&component))
+        {
+            const auto colour = label->findColour (juce::Label::textColourId);
+            ++labelCount;
+
+            if (colour.getPerceivedBrightness() < 0.35f)
+                ++darkLabelCount;
+        }
+
+        for (int i = 0; i < component.getNumChildComponents(); ++i)
+            inspectLabels (*component.getChildComponent (i), labelCount, darkLabelCount);
+    }
 }
 
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     constexpr double sr = 48000.0;
+
+    std::printf ("Editor colours:\n");
+    {
+        ParticleDelayAudioProcessor processor;
+        std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+        int labelCount = 0;
+        int darkLabelCount = 0;
+        inspectLabels (*editor, labelCount, darkLabelCount);
+
+        check (labelCount >= 26, "editor exposes all control labels");
+        check (darkLabelCount == 0, "all rendered label text resolves to a light colour");
+    }
 
     std::printf ("DelayBuffer:\n");
     {

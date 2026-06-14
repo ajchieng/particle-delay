@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "ParticleLookAndFeel.h"
 #include <array>
 #include <vector>
 #include <memory>
@@ -22,11 +23,18 @@ public:
 private:
     void timerCallback() override;
 
+    // Renders the current particle set into trailBuffer over the faded previous
+    // frame, producing motion trails without needing stable particle ids.
+    void updateTrail();
+    void paintBoxBackground (juce::Graphics&, juce::Rectangle<float> area, float alpha);
+
     ParticleDelayAudioProcessor& proc;
 
     static constexpr int maxDots = ParticleSystem::maxParticles;
     std::array<ParticleSystem::ParticleSnapshot, maxDots> dots {};
     int numDots = 0;
+
+    juce::Image trailBuffer;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParticleView)
 };
@@ -62,10 +70,23 @@ private:
         std::unique_ptr<ComboBoxAttachment> divisionAttachment;
     };
 
+    // A labelled card grouping a contiguous run of knobs.
+    struct Section
+    {
+        juce::String title;
+        juce::Rectangle<int> bounds;
+    };
+
     void addKnob (Knob& knob, const juce::String& paramID, const juce::String& displayName);
     void addDelaySyncControl (DelaySyncControl& control,
                               const juce::String& syncParamID,
                               const juce::String& divisionParamID);
+    // Lay out 'count' knobs in a single row across 'inner', starting at knob index.
+    void layoutKnobRow (juce::Rectangle<int> inner, int startIndex, int count);
+
+    // Declared first so it outlives the child controls that borrow it; the
+    // destructor also clears it via setLookAndFeel (nullptr).
+    ParticleLookAndFeel lookAndFeel;
 
     ParticleDelayAudioProcessor& proc;
 
@@ -75,6 +96,7 @@ private:
     static constexpr int numKnobs = 12;
     std::array<Knob, numKnobs> knobs;
     std::array<DelaySyncControl, 2> delaySyncControls;
+    std::array<Section, 4> sections;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParticleDelayAudioProcessorEditor)
 };
