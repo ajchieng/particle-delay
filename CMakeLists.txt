@@ -16,7 +16,8 @@ juce_add_plugin(ParticleDelay
     BUNDLE_ID               com.chieng.particledelay
     PLUGIN_MANUFACTURER_CODE Chng     # 4 chars, >=1 uppercase
     PLUGIN_CODE             Ptd1       # 4 chars, >=1 uppercase
-    FORMATS                 AU Standalone   # AU for Logic; Standalone for quick testing
+    FORMATS                 AU VST3 Standalone  # AU for Logic; VST3 for Cubase/Reaper/Windows; Standalone for quick testing
+    VST3_CATEGORIES         "Fx" "Delay"
     IS_SYNTH                FALSE
     NEEDS_MIDI_INPUT        FALSE
     NEEDS_MIDI_OUTPUT       FALSE
@@ -30,9 +31,11 @@ target_sources(ParticleDelay PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
     Source/ParticleLookAndFeel.cpp
+    Source/PresetManager.cpp
     Source/DSP/CapturedHit.cpp
     Source/DSP/TransientDetector.cpp
-    Source/DSP/ParticleSystem.cpp)
+    Source/DSP/ParticleSystem.cpp
+    Source/DSP/WetFinisher.cpp)
 
 target_include_directories(ParticleDelay PRIVATE Source)
 
@@ -65,10 +68,12 @@ if(PARTICLEDELAY_BUILD_TESTS)
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
         Source/ParticleLookAndFeel.cpp
+        Source/PresetManager.cpp
         Source/DSP/CapturedHit.cpp
         Source/DSP/DelayBuffer.cpp
         Source/DSP/TransientDetector.cpp
-        Source/DSP/ParticleSystem.cpp)
+        Source/DSP/ParticleSystem.cpp
+        Source/DSP/WetFinisher.cpp)
 
     target_compile_definitions(ParticleDelayTests PRIVATE
         JUCE_WEB_BROWSER=0

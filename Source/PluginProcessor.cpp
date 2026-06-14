@@ -39,6 +39,11 @@ ParticleDelayAudioProcessor::createParameterLayout()
 
     auto pct = [] (float v, int) { return String (roundToInt (v * 100.0f)) + " %"; };
     auto ms  = [] (float v, int) { return String (v, 0) + " ms"; };
+    auto hz  = [] (float v, int)
+    {
+        return v >= 1000.0f ? String (v / 1000.0f, 1) + " kHz"
+                            : String (roundToInt (v)) + " Hz";
+    };
 
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "MIX", 1 }, "Mix",
@@ -111,9 +116,9 @@ ParticleDelayAudioProcessor::createParameterLayout()
 
     {
         NormalisableRange<float> r (1.0f, maxDelayMs);
-        r.setSkewForCentre (600.0f);
+        r.setSkewForCentre (3000.0f);
         layout.add (std::make_unique<AudioParameterFloat> (
-            ParameterID { "DELAY_MAX_MS", 1 }, "Delay Max", r, 1200.0f,
+            ParameterID { "DELAY_MAX_MS", 1 }, "Delay Max", r, 6000.0f,
             AudioParameterFloatAttributes().withStringFromValueFunction (ms)));
     }
 
@@ -142,6 +147,46 @@ ParticleDelayAudioProcessor::createParameterLayout()
         AudioParameterFloatAttributes().withStringFromValueFunction (
             [] (float v, int) { return String (v, 1) + " dB"; })));
 
+    //==========================================================================
+    // SPACE: the wet-bus "lush" finishing stage. All default to neutral so old
+    // sessions and the documented presets are unaffected until a user dials them.
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "FEEDBACK", 1 }, "Feedback",
+        NormalisableRange<float> (0.0f, 1.0f), 0.0f,
+        AudioParameterFloatAttributes().withStringFromValueFunction (pct)));
+
+    {
+        NormalisableRange<float> r (20.0f, 2000.0f);
+        r.setSkewForCentre (200.0f);
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { "WET_HP", 1 }, "High Pass", r, 20.0f,
+            AudioParameterFloatAttributes().withStringFromValueFunction (hz)));
+    }
+
+    {
+        NormalisableRange<float> r (500.0f, 20000.0f);
+        r.setSkewForCentre (3000.0f);
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { "WET_LP", 1 }, "Low Pass", r, 20000.0f,
+            AudioParameterFloatAttributes().withStringFromValueFunction (hz)));
+    }
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "DIFFUSE", 1 }, "Diffuse",
+        NormalisableRange<float> (0.0f, 1.0f), 0.0f,
+        AudioParameterFloatAttributes().withStringFromValueFunction (pct)));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "DIFFUSE_SIZE", 1 }, "Size",
+        NormalisableRange<float> (0.0f, 1.0f), 0.5f,
+        AudioParameterFloatAttributes().withStringFromValueFunction (pct)));
+
+    layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { "WET_WIDTH", 1 }, "Width",
+        NormalisableRange<float> (0.0f, 2.0f), 1.0f,
+        AudioParameterFloatAttributes().withStringFromValueFunction (
+            [] (float v, int) { return String (roundToInt (v * 100.0f)) + " %"; })));
+
     return layout;
 }
 
@@ -156,6 +201,7 @@ void ParticleDelayAudioProcessor::prepareToPlay (double sampleRate, int samplesP
 
     capturedHits.prepare (currentSampleRate);
     wetLimiter.prepare (currentSampleRate);
+    wetFinisher.prepare (currentSampleRate);
     transientDetector.prepare (currentSampleRate);
     particleSystem.prepare (currentSampleRate, controlRateHz);
 
@@ -171,12 +217,19 @@ void ParticleDelayAudioProcessor::prepareToPlay (double sampleRate, int samplesP
     mixSmoothed.setCurrentAndTargetValue (apvts.getRawParameterValue ("MIX")->load());
     outputSmoothed.setCurrentAndTargetValue (
         juce::Decibels::decibelsToGain (apvts.getRawParameterValue ("OUTPUT")->load()));
+
+    overlapGainSmoothed.reset (currentSampleRate, 0.015);
+    overlapGainSmoothed.setCurrentAndTargetValue (1.0f);
+
+    inputLevelEnv = 0.0f;
+    inputLevel.store (0.0f, std::memory_order_relaxed);
 }
 
 void ParticleDelayAudioProcessor::releaseResources()
 {
     capturedHits.reset();
     wetLimiter.reset();
+    wetFinisher.reset();
     transientDetector.reset();
     particleSystem.reset();
     activeVoiceCount = 0;
@@ -275,6 +328,14 @@ void ParticleDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     const float captureMaxMs  = apvts.getRawParameterValue ("CAPTURE_MAX_MS")->load();
     const float smoothness    = apvts.getRawParameterValue ("SMOOTHNESS")->load();
     const float threshold     = apvts.getRawParameterValue ("THRESHOLD")->load();
+    const float feedback      = apvts.getRawParameterValue ("FEEDBACK")->load();
+
+    // SPACE wet-finishing stage (set once per block; transparent at defaults).
+    wetFinisher.setHighPass (apvts.getRawParameterValue ("WET_HP")->load());
+    wetFinisher.setLowPass  (apvts.getRawParameterValue ("WET_LP")->load());
+    wetFinisher.setDiffuse  (apvts.getRawParameterValue ("DIFFUSE")->load(),
+                             apvts.getRawParameterValue ("DIFFUSE_SIZE")->load());
+    wetFinisher.setWidth    (apvts.getRawParameterValue ("WET_WIDTH")->load());
 
     mixSmoothed.setTargetValue (apvts.getRawParameterValue ("MIX")->load());
     outputSmoothed.setTargetValue (
@@ -302,12 +363,19 @@ void ParticleDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     const float gravity = ParticleSystem::gravityForMultiplier (
         gravityAmount, controlRateHz, ParticleSystem::spawnHeight);
 
+    // Per-sample decay for the input meter (~300 ms release).
+    const float meterRelease = std::exp (-1.0f / (0.3f * (float) currentSampleRate));
+
     for (int sample = 0; sample < numSamples; ++sample)
     {
         const float inL = finiteOrZero (buffer.getSample (0, sample));
         const float inR = numChannels > 1
             ? finiteOrZero (buffer.getSample (1, sample))
             : inL;
+
+        // Peak follower for the editor's threshold meter.
+        const float inPeak = juce::jmax (std::abs (inL), std::abs (inR));
+        inputLevelEnv = inPeak > inputLevelEnv ? inPeak : inputLevelEnv * meterRelease;
 
         // 1) Onset detection -> start a stereo capture and its particle burst.
         if (transientDetector.processSample (inL, inR, threshold))
@@ -331,7 +399,7 @@ void ParticleDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
             controlAccumulator -= samplesPerControlTick;
 
             echoEvents.clear();
-            particleSystem.update (gravity, bounce, decay, delayMinMs, delayMaxMs, echoEvents);
+            particleSystem.update (gravity, bounce, decay, feedback, delayMinMs, delayMaxMs, echoEvents);
 
             for (const auto& e : echoEvents)
                 triggerReplay (e, smoothness);
@@ -392,10 +460,17 @@ void ParticleDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
             ++voiceIndex;
         }
 
-        const float overlapGain = 1.0f
-            / std::sqrt ((float) juce::jmax (1, renderedVoiceCount));
+        // Slew the overlap-normalisation gain so the wet level doesn't lurch as
+        // voices start and end (which happens constantly in dense clouds).
+        overlapGainSmoothed.setTargetValue (
+            1.0f / std::sqrt ((float) juce::jmax (1, renderedVoiceCount)));
+        const float overlapGain = overlapGainSmoothed.getNextValue();
         wetL *= overlapGain;
         wetR *= overlapGain;
+
+        // SPACE finishing (HP -> LP -> diffuse -> width) before the safety
+        // limiter, so the -1 dB ceiling still bounds the final wet signal.
+        wetFinisher.process (wetL, wetR);
         wetLimiter.process (wetL, wetR);
 
         const float mix     = mixSmoothed.getNextValue();
@@ -415,6 +490,8 @@ void ParticleDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
             buffer.setSample (0, sample, finiteOrZero (output));
         }
     }
+
+    inputLevel.store (inputLevelEnv, std::memory_order_relaxed);
 }
 
 //==============================================================================
@@ -436,12 +513,17 @@ void ParticleDelayAudioProcessor::setStateInformation (const void* data, int siz
         if (xml->hasTagName (apvts.state.getType()))
         {
             auto state = juce::ValueTree::fromXml (*xml);
-            if (! state.hasProperty ("GRAVITY"))
-                state.setProperty ("GRAVITY",
-                                   ParticleSystem::defaultGravityMultiplier,
-                                   nullptr);
+            PresetManager::migrateState (state);
             apvts.replaceState (state);
         }
+}
+
+void ParticleDelayAudioProcessor::resetToDefaults()
+{
+    // Notifies the host and any attached editor controls, so this works whether
+    // called from the UI button or a test. Covers every parameter type.
+    for (auto* param : getParameters())
+        param->setValueNotifyingHost (param->getDefaultValue());
 }
 
 //==============================================================================

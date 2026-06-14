@@ -47,6 +47,7 @@ public:
     void update (float gravity,
                  float bounce,
                  float decay,
+                 float feedback,
                  float delayMinMs,
                  float delayMaxMs,
                  std::vector<EchoEvent>& echoEvents);

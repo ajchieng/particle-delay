@@ -30,8 +30,8 @@ every control and how the parameters interact.
 | Decay     | 0.90–0.9999    | 0.995    | Per-tick energy decay (how long particles live) |
 | Capture Length | 80–500 ms | 250 ms | Maximum captured body of each detected hit |
 | Smoothness | 0–100 % | 50 % | Replay attack/release fade length |
-| Delay Min | 1–12000 ms / sync | 60 ms | Start of the audible bounce window |
-| Delay Max | 1–12000 ms / sync | 1200 ms | End of the audible bounce window |
+| Delay Min | 1–20000 ms / sync | 60 ms | Start of the audible bounce window |
+| Delay Max | 1–20000 ms / sync | 6000 ms | End of the audible bounce window |
 | Threshold | 0.001–1.0      | 0.15     | Input level needed to spawn particles |
 | Output    | -24–+12 dB     | 0 dB     | Output gain |
 

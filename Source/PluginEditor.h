@@ -40,7 +40,69 @@ private:
 };
 
 //==============================================================================
-// 12 rotary controls, two delay-sync sections, and the particle visualiser.
+// A thin horizontal meter under the Threshold knob: a fill bar tracks the live
+// input peak and a marker line shows the Threshold, both placed on the Threshold
+// parameter's own (skewed) scale so the bar crosses the marker exactly when a
+// hit will trigger.
+class MeterView : public juce::Component,
+                  private juce::Timer
+{
+public:
+    explicit MeterView (ParticleDelayAudioProcessor&);
+    ~MeterView() override;
+
+    void paint (juce::Graphics&) override;
+
+private:
+    void timerCallback() override;
+
+    ParticleDelayAudioProcessor& proc;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MeterView)
+};
+
+//==============================================================================
+// A toggle-able overlay that explains the plugin and every parameter. The text
+// mirrors PARAMETER_GUIDE.md, condensed to one line per control. Hidden until
+// the header "?" button shows it; closes via its button or a backdrop click.
+class HelpPanel : public juce::Component
+{
+public:
+    HelpPanel();
+    ~HelpPanel() override;
+
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
+
+    // Set by the editor to hide the panel.
+    std::function<void()> onClose;
+
+private:
+    // Scrollable rich-text body painted from a single AttributedString.
+    class Body : public juce::Component
+    {
+    public:
+        Body();
+        void paint (juce::Graphics&) override;
+        int idealHeightForWidth (int width) const;
+
+    private:
+        juce::AttributedString text;
+    };
+
+    juce::Rectangle<int> cardBounds() const;
+
+    juce::Viewport   viewport;
+    Body             body;
+    juce::TextButton closeButton { "Close" };
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HelpPanel)
+};
+
+//==============================================================================
+// 18 rotary controls, two delay-sync sections, the particle visualiser, and a
+// toggle-able help overlay.
 class ParticleDelayAudioProcessorEditor : public juce::AudioProcessorEditor
 {
 public:
@@ -77,26 +139,49 @@ private:
         juce::Rectangle<int> bounds;
     };
 
-    void addKnob (Knob& knob, const juce::String& paramID, const juce::String& displayName);
+    void addKnob (Knob& knob, const juce::String& paramID,
+                  const juce::String& displayName, const juce::String& tooltip);
     void addDelaySyncControl (DelaySyncControl& control,
                               const juce::String& syncParamID,
                               const juce::String& divisionParamID);
     // Lay out 'count' knobs in a single row across 'inner', starting at knob index.
     void layoutKnobRow (juce::Rectangle<int> inner, int startIndex, int count);
 
+    // Preset bar helpers.
+    void refreshPresetList();          // repopulate the combo from the PresetManager
+    void applySelectedPreset();        // load whatever the combo currently shows
+    void stepPreset (int delta);       // < / > buttons
+    void promptSaveUserPreset();       // "Save" button
+
     // Declared first so it outlives the child controls that borrow it; the
     // destructor also clears it via setLookAndFeel (nullptr).
     ParticleLookAndFeel lookAndFeel;
 
+    // Shows tooltips for any child that calls setTooltip; declared after the
+    // look-and-feel so it is destroyed first.
+    juce::TooltipWindow tooltip;
+
     ParticleDelayAudioProcessor& proc;
 
-    juce::Label   titleLabel;
-    ParticleView  particleView;
+    juce::Label      titleLabel;
+    juce::TextButton resetButton { "Reset" };
+    juce::TextButton helpButton { "?" };
+    ParticleView     particleView;
+    MeterView        thresholdMeter;
+    HelpPanel        helpPanel;
 
-    static constexpr int numKnobs = 12;
+    // Preset bar.
+    juce::ComboBox   presetBox;
+    juce::TextButton prevPresetButton { "<" };
+    juce::TextButton nextPresetButton { ">" };
+    juce::TextButton savePresetButton { "Save" };
+    juce::StringArray userPresetNames;          // index aligns with combo ids >= userPresetIdBase
+    static constexpr int userPresetIdBase = 1000;
+
+    static constexpr int numKnobs = 18;
     std::array<Knob, numKnobs> knobs;
     std::array<DelaySyncControl, 2> delaySyncControls;
-    std::array<Section, 4> sections;
+    std::array<Section, 5> sections;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParticleDelayAudioProcessorEditor)
 };

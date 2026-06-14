@@ -108,6 +108,7 @@ void ParticleSystem::releaseOne (const PendingBurst& burst)
 void ParticleSystem::update (float gravity,
                              float bounce,
                              float decay,
+                             float feedback,
                              float delayMinMs,
                              float delayMaxMs,
                              std::vector<EchoEvent>& echoEvents)
@@ -116,6 +117,23 @@ void ParticleSystem::update (float gravity,
     gravity = juce::jlimit (0.0f, 0.05f, gravity);
     bounce  = juce::jlimit (0.1f,  0.99f, bounce);
     decay   = juce::jlimit (0.90f, 0.9999f, decay);
+
+    // Feedback "extends particle life" using levers the Bounce and Decay knobs
+    // can't reach, so it is more than a macro over them:
+    //   - effBounce climbs past Bounce's 0.99 ceiling toward (never reaching)
+    //     perfectly elastic, so a particle keeps bouncing at a near-constant,
+    //     musical interval instead of accelerating to rest;
+    //   - effDecay climbs past Decay's 0.9999 ceiling so the energy barely fades;
+    //   - effMaxAge stretches the hard lifetime cap so a sustained train can
+    //     actually ring out over that longer life.
+    // The jmax() guards mean more Feedback can only ever lengthen the tail, never
+    // shorten it. Everything stays below 1.0 and the age/energy/min-velocity caps
+    // remain, so feedback can't self-oscillate or run away. feedback = 0
+    // reproduces the original physics exactly.
+    const float fb        = juce::jlimit (0.0f, 1.0f, feedback);
+    const float effBounce = juce::jmax (bounce, bounce + (0.998f   - bounce) * fb);
+    const float effDecay  = juce::jmax (decay,  decay  + (0.99995f - decay)  * fb);
+    const float effMaxAge = maxAgeTicks * (1.0f + 1.5f * fb);
 
     // ---- Staggered releases: advance every active burst independently ----------
     for (auto& burst : pendingBursts)
@@ -148,7 +166,7 @@ void ParticleSystem::update (float gravity,
         p.x += p.vx;
         p.y += p.vy;
 
-        p.energy        *= decay;
+        p.energy        *= effDecay;
         p.age           += 1.0f;
         p.elapsedTicks += 1.0f;
 
@@ -168,8 +186,8 @@ void ParticleSystem::update (float gravity,
             const float impactSpeed = std::abs (p.vy);
             createEchoEvent (p, impactSpeed, delayMinMs, delayMaxMs, echoEvents);
 
-            p.vy     = -p.vy * bounce;   // reflect upward, losing energy
-            p.energy *= bounce;
+            p.vy     = -p.vy * effBounce;   // reflect upward, losing energy
+            p.energy *= effBounce;
 
             // Settled: the bounce is too small to matter - let it rest (and stop
             // it machine-gunning audio-rate echoes as the height shrinks to zero).
@@ -177,7 +195,7 @@ void ParticleSystem::update (float gravity,
                 p.alive = false;
         }
 
-        if (p.energy < 0.005f || p.age > maxAgeTicks)
+        if (p.energy < 0.005f || p.age > effMaxAge)
             p.alive = false;
     }
 

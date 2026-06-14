@@ -20,6 +20,8 @@
 #include "../Source/DSP/EchoEvent.h"
 #include "../Source/DSP/DelaySync.h"
 #include "../Source/DSP/CapturedHit.h"
+#include "../Source/DSP/WetFinisher.h"
+#include "../Source/PresetManager.h"
 
 namespace
 {
@@ -61,7 +63,7 @@ int main()
         int darkLabelCount = 0;
         inspectLabels (*editor, labelCount, darkLabelCount);
 
-        check (labelCount >= 26, "editor exposes all control labels");
+        check (labelCount >= 38, "editor exposes all control labels");
         check (darkLabelCount == 0, "all rendered label text resolves to a light colour");
     }
 
@@ -264,7 +266,7 @@ int main()
         for (int tick = 0; tick < 4000; ++tick)
         {
             events.clear();
-            ps.update (0.00035f, 0.72f, 0.995f, 60.0f, 650.0f, events);
+            ps.update (0.00035f, 0.72f, 0.995f, 0.0f, 60.0f, 650.0f, events);
 
             for (const auto& e : events)
             {
@@ -308,7 +310,7 @@ int main()
         for (int tick = 0; tick < 20; ++tick)
         {
             events.clear();
-            ps.update (0.00035f, 0.72f, 0.9999f, 0.0f, 2000.0f, events);
+            ps.update (0.00035f, 0.72f, 0.9999f, 0.0f, 0.0f, 2000.0f, events);
         }
         ps.triggerBurst (1, 0.0f, 22);
 
@@ -317,7 +319,7 @@ int main()
         for (int tick = 0; tick < 1000 && (! sawFirst || ! sawSecond); ++tick)
         {
             events.clear();
-            ps.update (0.00035f, 0.72f, 0.9999f, 0.0f, 2000.0f, events);
+            ps.update (0.00035f, 0.72f, 0.9999f, 0.0f, 0.0f, 2000.0f, events);
             for (const auto& e : events)
             {
                 sawFirst  = sawFirst  || e.sourceId == 11;
@@ -332,7 +334,7 @@ int main()
         for (int tick = 0; tick < 500; ++tick)
         {
             events.clear();
-            ps.update (0.00035f, 0.72f, 0.9999f, 0.0f, 2000.0f, events);
+            ps.update (0.00035f, 0.72f, 0.9999f, 0.0f, 0.0f, 2000.0f, events);
             for (const auto& e : events)
                 retiredSourceReturned = retiredSourceReturned || e.sourceId == 11;
         }
@@ -358,7 +360,7 @@ int main()
             {
                 events.clear();
                 particles.update (gravity, 0.72f, 0.9999f,
-                                  0.0f, 20000.0f, events);
+                                  0.0f, 0.0f, 20000.0f, events);
                 for (const auto& event : events)
                 {
                     if (times[0] < 0.0f)
@@ -417,7 +419,7 @@ int main()
         for (int tick = 0; tick < 1000 && firstAudibleElapsed < 0.0f; ++tick)
         {
             events.clear();
-            ps.update (g, 0.72f, 0.9999f, 500.0f, 1000.0f, events);
+            ps.update (g, 0.72f, 0.9999f, 0.0f, 500.0f, 1000.0f, events);
             if (! events.empty())
                 firstAudibleElapsed = events.front().elapsedMs;
         }
@@ -472,7 +474,7 @@ int main()
         processor.apvts.getRawParameterValue ("CAPTURE_MAX_MS")->store (500.0f);
         processor.apvts.getRawParameterValue ("SMOOTHNESS")->store (0.5f);
         processor.apvts.getRawParameterValue ("DELAY_MIN_MS")->store (1.0f);
-        processor.apvts.getRawParameterValue ("DELAY_MAX_MS")->store (12000.0f);
+        processor.apvts.getRawParameterValue ("DELAY_MAX_MS")->store (20000.0f);
         processor.apvts.getRawParameterValue ("THRESHOLD")->store (0.1f);
 
         juce::AudioBuffer<float> buffer (2, blockSize);
@@ -541,6 +543,293 @@ int main()
                      durationSeconds, elapsedSeconds,
                      durationSeconds / juce::jmax (0.000001, elapsedSeconds),
                      maximumVoices, longestBlockSeconds * 1000.0);
+    }
+
+    std::printf ("WetFinisher:\n");
+    {
+        constexpr int n = 4096;
+
+        auto makeSine = [&] (float freq, std::vector<float>& l, std::vector<float>& r)
+        {
+            l.resize ((size_t) n);
+            r.resize ((size_t) n);
+            for (int i = 0; i < n; ++i)
+            {
+                const float s = std::sin (2.0f * juce::MathConstants<float>::pi
+                                          * freq * (float) i / (float) sr);
+                l[(size_t) i] = s;
+                r[(size_t) i] = s;
+            }
+        };
+
+        // RMS over the back half of the buffer, so the filter warm-up is ignored.
+        auto processRms = [] (WetFinisher& wf, std::vector<float> l, std::vector<float> r)
+        {
+            double sum = 0.0;
+            int counted = 0;
+            for (size_t i = 0; i < l.size(); ++i)
+            {
+                float a = l[i], b = r[i];
+                wf.process (a, b);
+                if ((int) i >= (int) l.size() / 2)
+                {
+                    sum += 0.5 * ((double) a * a + (double) b * b);
+                    ++counted;
+                }
+            }
+            return std::sqrt (sum / (double) juce::jmax (1, counted));
+        };
+
+        auto configure = [] (WetFinisher& wf, float hp, float lp, float diffuse, float width)
+        {
+            wf.setHighPass (hp);
+            wf.setLowPass (lp);
+            wf.setDiffuse (diffuse, 0.6f);
+            wf.setWidth (width);
+        };
+
+        // 1) Width = 0 collapses the wet bus to mono regardless of filtering.
+        {
+            WetFinisher wf; wf.prepare (sr);
+            configure (wf, 20.0f, 20000.0f, 0.0f, 0.0f);
+            bool mono = true;
+            for (int i = 0; i < 256; ++i)
+            {
+                float a = 0.5f, b = -0.3f;
+                wf.process (a, b);
+                if (std::abs (a - b) > 1.0e-6f) mono = false;
+            }
+            check (mono, "width = 0 collapses the wet bus to mono (L == R)");
+        }
+
+        // 2) Low-pass attenuates a high tone well below a low tone.
+        {
+            std::vector<float> ll, lr, hl, hr;
+            makeSine (200.0f, ll, lr);
+            makeSine (10000.0f, hl, hr);
+            WetFinisher lowWf;  lowWf.prepare (sr);  configure (lowWf,  20.0f, 1000.0f, 0.0f, 1.0f);
+            WetFinisher highWf; highWf.prepare (sr); configure (highWf, 20.0f, 1000.0f, 0.0f, 1.0f);
+            const double lowRms  = processRms (lowWf,  ll, lr);
+            const double highRms = processRms (highWf, hl, hr);
+            check (highRms < lowRms * 0.5,
+                   "low-pass attenuates a 10 kHz tone well below a 200 Hz tone");
+        }
+
+        // 3) High-pass attenuates a low tone well below a high tone.
+        {
+            std::vector<float> ll, lr, hl, hr;
+            makeSine (80.0f, ll, lr);
+            makeSine (5000.0f, hl, hr);
+            WetFinisher lowWf;  lowWf.prepare (sr);  configure (lowWf,  2000.0f, 20000.0f, 0.0f, 1.0f);
+            WetFinisher highWf; highWf.prepare (sr); configure (highWf, 2000.0f, 20000.0f, 0.0f, 1.0f);
+            const double lowRms  = processRms (lowWf,  ll, lr);
+            const double highRms = processRms (highWf, hl, hr);
+            check (lowRms < highRms * 0.5,
+                   "high-pass attenuates an 80 Hz tone well below a 5 kHz tone");
+        }
+
+        // 4) Diffuse alters the signal and stays finite/bounded.
+        {
+            std::vector<float> dl, dr;
+            makeSine (1000.0f, dl, dr);
+            WetFinisher wf; wf.prepare (sr);
+            configure (wf, 20.0f, 20000.0f, 1.0f, 1.0f);
+            bool finite = true, bounded = true, changed = false;
+            for (size_t i = 0; i < dl.size(); ++i)
+            {
+                const float inL = dl[i];
+                float a = dl[i], b = dr[i];
+                wf.process (a, b);
+                finite  = finite  && std::isfinite (a) && std::isfinite (b);
+                bounded = bounded && std::abs (a) < 8.0f && std::abs (b) < 8.0f;
+                if (std::abs (a - inL) > 1.0e-4f) changed = true;
+            }
+            check (finite && bounded, "diffuser output stays finite and bounded");
+            check (changed, "diffuse > 0 audibly alters the wet signal");
+        }
+
+        // 5) Default settings are ~transparent.
+        {
+            std::vector<float> il, ir;
+            makeSine (1000.0f, il, ir);
+            WetFinisher wf; wf.prepare (sr);
+            configure (wf, 20.0f, 20000.0f, 0.0f, 1.0f);
+            double sumIn = 0.0, sumOut = 0.0;
+            for (size_t i = 0; i < il.size(); ++i)
+            {
+                const float inL = il[i];
+                float a = il[i], b = ir[i];
+                wf.process (a, b);
+                if ((int) i >= n / 2)
+                {
+                    sumIn  += (double) inL * inL;
+                    sumOut += (double) a * a;
+                }
+            }
+            const double ratio = std::sqrt (sumOut / juce::jmax (1.0e-12, sumIn));
+            check (ratio > 0.9 && ratio < 1.1,
+                   "default settings pass the wet signal through ~unchanged");
+        }
+    }
+
+    std::printf ("Feedback extends life:\n");
+    {
+        constexpr double controlRate = 250.0;
+
+        const auto run = [&] (float feedback, int& echoesOut, int& aliveOut)
+        {
+            ParticleSystem ps;
+            ps.prepare (sr, controlRate);
+            std::vector<EchoEvent> events;
+            events.reserve (ParticleSystem::maxParticles * 2 + 16);
+            ps.triggerBurst (4, 0.3f, 55);
+
+            // Long enough that even the feedback-stretched lifetime cap expires.
+            echoesOut = 0;
+            for (int tick = 0; tick < 12000; ++tick)
+            {
+                events.clear();
+                ps.update (0.00035f, 0.72f, 0.995f, feedback, 0.0f, 20000.0f, events);
+                echoesOut += (int) events.size();
+            }
+            ParticleSystem::ParticleSnapshot snap[ParticleSystem::maxParticles];
+            aliveOut = ps.getSnapshot (snap, ParticleSystem::maxParticles);
+        };
+
+        int dryEchoes = 0, dryAlive = 0, wetEchoes = 0, wetAlive = 0;
+        run (0.0f, dryEchoes, dryAlive);
+        run (0.9f, wetEchoes, wetAlive);
+
+        check (wetEchoes > dryEchoes,
+               "feedback produces more echoes (longer-lived trains)");
+        check (dryAlive == 0 && wetAlive == 0,
+               "particles still all die under high feedback (bounded lifetime)");
+
+        std::printf ("    (echoes: feedback 0 -> %d, feedback 0.9 -> %d)\n",
+                     dryEchoes, wetEchoes);
+    }
+
+    std::printf ("Reset to defaults:\n");
+    {
+        ParticleDelayAudioProcessor processor;
+
+        // Push parameters of several types away from their defaults.
+        processor.apvts.getParameter ("MIX")->setValueNotifyingHost (1.0f);
+        processor.apvts.getParameter ("FEEDBACK")->setValueNotifyingHost (1.0f);
+        processor.apvts.getParameter ("GRAVITY")->setValueNotifyingHost (0.0f);
+        processor.apvts.getParameter ("DELAY_MIN_SYNC")->setValueNotifyingHost (1.0f);
+
+        check (processor.apvts.getRawParameterValue ("MIX")->load() > 0.9f
+                   && processor.apvts.getRawParameterValue ("FEEDBACK")->load() > 0.9f,
+               "parameters move away from their defaults before reset");
+
+        processor.resetToDefaults();
+
+        check (std::abs (processor.apvts.getRawParameterValue ("MIX")->load() - 0.35f) < 1.0e-4f,
+               "reset restores Mix to its default");
+        check (std::abs (processor.apvts.getRawParameterValue ("FEEDBACK")->load()) < 1.0e-4f,
+               "reset restores Feedback to 0");
+        check (std::abs (processor.apvts.getRawParameterValue ("GRAVITY")->load()
+                        - ParticleSystem::defaultGravityMultiplier) < 1.0e-3f,
+               "reset restores Gravity to 1.0x");
+        check (processor.apvts.getRawParameterValue ("DELAY_MIN_SYNC")->load() < 0.5f,
+               "reset turns Delay Min Sync back off");
+    }
+
+    std::printf ("Overlap gain smoothing:\n");
+    {
+        constexpr int block = 64;
+        ParticleDelayAudioProcessor processor;
+        processor.setPlayConfigDetails (2, 2, sr, block);
+        processor.prepareToPlay (sr, block);
+        processor.apvts.getParameter ("MIX")->setValueNotifyingHost (1.0f);
+        processor.apvts.getParameter ("PARTICLES")->setValueNotifyingHost (1.0f); // 32
+        processor.apvts.getParameter ("THRESHOLD")->setValueNotifyingHost (0.0f); // triggers easily
+
+        juce::AudioBuffer<float> buffer (2, block);
+        juce::MidiBuffer midi;
+
+        float prevGain = processor.getOverlapGainForTests();
+        float maxJump = 0.0f;
+        for (int b = 0; b < 400; ++b)
+        {
+            buffer.clear();
+            if (b < 200 && b % 4 == 0)           // build voices, then go silent
+            {
+                buffer.setSample (0, 0, 0.9f);
+                buffer.setSample (1, 0, 0.8f);
+            }
+            processor.processBlock (buffer, midi);
+            const float g = processor.getOverlapGainForTests();
+            maxJump = juce::jmax (maxJump, std::abs (g - prevGain));
+            prevGain = g;
+        }
+        check (maxJump < 0.15f, "overlap gain slews instead of jumping as voices start/stop");
+    }
+
+    std::printf ("Input meter:\n");
+    {
+        ParticleDelayAudioProcessor processor;
+        processor.setPlayConfigDetails (2, 2, sr, 128);
+        processor.prepareToPlay (sr, 128);
+        juce::AudioBuffer<float> buffer (2, 128);
+        juce::MidiBuffer midi;
+
+        buffer.clear();
+        processor.processBlock (buffer, midi);
+        const float quiet = processor.getInputLevel();
+
+        for (int i = 0; i < 128; ++i) { buffer.setSample (0, i, 0.7f); buffer.setSample (1, i, -0.7f); }
+        processor.processBlock (buffer, midi);
+        const float loud = processor.getInputLevel();
+
+        check (std::isfinite (quiet) && std::isfinite (loud), "input level stays finite");
+        check (loud > quiet && loud > 0.5f, "input meter rises with input level");
+    }
+
+    std::printf ("Presets:\n");
+    {
+        ParticleDelayAudioProcessor processor;
+        auto& pm = processor.presetManager;
+
+        check (pm.getNumFactoryPresets() >= 5, "factory preset bank is populated");
+        check (processor.getNumPrograms() == pm.getNumFactoryPresets(),
+               "program count matches the factory preset bank");
+
+        const auto indexOfPreset = [&] (const juce::String& name)
+        {
+            for (int i = 0; i < pm.getNumFactoryPresets(); ++i)
+                if (pm.getFactoryPresetName (i) == name) return i;
+            return -1;
+        };
+
+        const int chaos = indexOfPreset ("Chaos Cloud");
+        check (chaos >= 0, "Chaos Cloud factory preset exists");
+        processor.setCurrentProgram (chaos);
+        check (std::abs (processor.apvts.getRawParameterValue ("MIX")->load() - 0.65f) < 0.02f,
+               "applying a factory preset sets its parameters");
+        check (std::abs (processor.apvts.getRawParameterValue ("FEEDBACK")->load()) < 1.0e-3f,
+               "a factory preset resets parameters it omits (Feedback) to default");
+
+        const int lush = indexOfPreset ("Lush");
+        check (lush >= 0, "Lush factory preset exists");
+        processor.setCurrentProgram (lush);
+        check (processor.apvts.getRawParameterValue ("FEEDBACK")->load() > 0.1f,
+               "the Lush preset engages the SPACE panel");
+
+        // User preset round-trip (writes to the real preset dir; cleaned up after).
+        const juce::String testName = "__pd_test_preset__";
+        processor.apvts.getParameter ("MIX")->setValueNotifyingHost (0.5f);
+        const float savedMix = processor.apvts.getRawParameterValue ("MIX")->load();
+        check (pm.saveUserPreset (testName), "user preset saves to disk");
+
+        processor.apvts.getParameter ("MIX")->setValueNotifyingHost (0.9f);
+        check (pm.loadUserPreset (testName), "user preset loads from disk");
+        check (std::abs (processor.apvts.getRawParameterValue ("MIX")->load() - savedMix) < 1.0e-3f,
+               "user preset round-trips the parameter state");
+
+        PresetManager::presetDirectory().getChildFile (testName + ".xml").deleteFile();
+        check (pm.getUserPresetNames().indexOf (testName) < 0, "test preset cleaned up");
     }
 
     std::printf ("\n%s\n", failures == 0 ? "ALL TESTS PASSED" : "SOME TESTS FAILED");

@@ -15,10 +15,19 @@ launches particles, and every floor bounce creates an echo of that hit.
 | Decay | 0.90-0.9999 | 0.995 | How quickly particle energy fades |
 | Capture Length | 80-500 ms | 250 ms | Maximum captured body of each hit |
 | Smoothness | 0-100% | 50% | Replay attack and release fades |
-| Delay Min | 1-12000 ms or synced | 60 ms | Start of the audible bounce window |
-| Delay Max | 1-12000 ms or synced | 1200 ms | End of the audible bounce window |
+| Delay Min | 1-20000 ms or synced | 60 ms | Start of the audible bounce window |
+| Delay Max | 1-20000 ms or synced | 6000 ms | End of the audible bounce window |
 | Threshold | 0.001-1.0 | 0.15 | Input level required to detect a hit |
 | Output | -24 to +12 dB | 0 dB | Final plugin output level |
+| Feedback | 0-100% | 0% | Extends echo-train life beyond Bounce/Decay |
+| High Pass | 20-2000 Hz | 20 Hz | Removes lows from the wet signal |
+| Low Pass | 500-20000 Hz | 20 kHz | Rolls off highs from the wet signal |
+| Diffuse | 0-100% | 0% | Smears echoes into a diffuse wash |
+| Size | 0-100% | 50% | Length and spread of the diffusion |
+| Width | 0-200% | 100% | Stereo width of the wet signal |
+
+The last six parameters make up the **SPACE** panel, a wet-signal finishing
+stage. See [SPACE Panel](#space-panel) below.
 
 ## Mix
 
@@ -191,6 +200,81 @@ Controls the final level after the dry and wet signals are mixed.
 Use Output to level-match the processed signal with the bypassed signal. This
 makes it easier to judge the effect without being biased by a louder result.
 
+## SPACE Panel
+
+The SPACE panel finishes the combined wet (echo) signal before it is mixed back
+with the dry input. Feedback shapes the particle motion itself; the other five
+controls form a wet-bus tone, diffusion, and width stage, applied in the order
+High Pass, Low Pass, Diffuse, then Width. Every SPACE control defaults to a
+neutral/off value, so the panel has no effect until you reach for it and
+existing sessions sound identical.
+
+## Feedback
+
+Extends the life of each echo train. Unlike Bounce and Decay, Feedback reaches
+beyond what those knobs can do on their own:
+
+- It carries bounce energy past Bounce's 99% ceiling toward, but never reaching,
+  perfectly elastic, so a particle keeps bouncing at a near-constant, musical
+  interval instead of accelerating to rest.
+- It slows energy fade past Decay's 0.9999 ceiling.
+- It stretches the internal lifetime cap so a sustained train can ring out up to
+  roughly 20 seconds at maximum.
+
+- **0%:** No change; particle physics behave exactly as set by Bounce and Decay.
+- **Higher values:** Long, sustaining tails that outlast any Bounce and Decay
+  combination.
+
+Feedback never spawns new particles, and raising it can only lengthen the tail,
+never shorten it. The lifetime and energy limits keep it from self-oscillating,
+so the tail always eventually fades to silence.
+
+## High Pass
+
+A high-pass filter applied to the wet signal only; the dry input is untouched.
+
+- **20 Hz (default):** Effectively off.
+- **Higher values:** Thin out the low end so echoes do not clutter the low
+  frequencies. Useful on bass-heavy material or dense feedback tails.
+
+## Low Pass
+
+A low-pass filter applied to the wet signal only.
+
+- **20 kHz (default):** Effectively off.
+- **Lower values:** Darken the echoes for a warmer, dub-style or ambient tail.
+
+Per-hit brightness already varies with impact speed; Low Pass sets a global
+ceiling on top of that.
+
+## Diffuse
+
+Crossfades the wet signal through a series of all-pass filters that smear sharp
+echoes into a softer, more reverberant wash.
+
+- **0% (default):** Echoes pass through cleanly as discrete repeats.
+- **Higher values:** Echoes blur together into a diffuse cloud. Pairs well with
+  high Feedback and dense particle clouds.
+
+## Size
+
+Scales the diffusion delay lengths, and therefore the character of the smear.
+Size has no effect while Diffuse is at 0%.
+
+- **Lower values:** Shorter, tighter, more metallic diffusion.
+- **Higher values:** Longer, more spacious smear.
+
+## Width
+
+Adjusts the stereo width of the wet signal using mid/side processing, applied
+after diffusion.
+
+- **0%:** The wet signal collapses to mono.
+- **100% (default):** Unchanged stereo image.
+- **200%:** Exaggerated stereo width.
+
+Width affects only the echoes; the dry signal keeps its original image.
+
 ## Useful Interactions
 
 - **Particles + Scatter:** More particles and more scatter create a wider,
@@ -207,3 +291,11 @@ makes it easier to judge the effect without being biased by a louder result.
   very dense result because many input details launch large bursts.
 - **Mix + Output:** Use Mix for the effect balance and Output for final
   level-matching.
+- **Feedback vs Bounce/Decay:** Use Bounce and Decay for the core motion and
+  loudness of the train; reach for Feedback only when you want it to ring out
+  longer than those knobs allow on their own.
+- **Feedback + High Pass/Low Pass + Diffuse:** Long feedback tails can build up
+  quickly. Roll off High Pass and Low Pass and add Diffuse to keep dense,
+  sustaining tails smooth and controlled.
+- **Width + Scatter:** Scatter spreads where echoes are placed; Width then
+  narrows or widens that whole image while the dry signal stays centered.

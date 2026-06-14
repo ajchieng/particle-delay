@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <array>
+#include <atomic>
 #include <vector>
 
 #include "DSP/CapturedHit.h"
@@ -9,6 +10,8 @@
 #include "DSP/ParticleSystem.h"
 #include "DSP/EchoEvent.h"
 #include "DSP/DelaySync.h"
+#include "DSP/WetFinisher.h"
+#include "PresetManager.h"
 
 //==============================================================================
 // Particle Delay
@@ -48,21 +51,38 @@ public:
     bool acceptsMidi() const override  { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return maxDelayMs * 0.001 + 0.1; }
+    // Cover the worst case: max Feedback stretches a particle's life to ~20 s
+    // (see ParticleSystem effMaxAge), matching the maximum delay window.
+    double getTailLengthSeconds() const override { return juce::jmax (maxDelayMs * 0.001, 20.0) + 0.2; }
 
     //==========================================================================
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    // Programs are the factory presets, surfaced in the host's preset menu.
+    int getNumPrograms() override { return presetManager.getNumFactoryPresets(); }
+    int getCurrentProgram() override { return currentProgram; }
+    void setCurrentProgram (int index) override
+    {
+        if (index >= 0 && index < presetManager.getNumFactoryPresets())
+        {
+            currentProgram = index;
+            presetManager.applyFactoryPreset (index);
+        }
+    }
+    const juce::String getProgramName (int index) override { return presetManager.getFactoryPresetName (index); }
     void changeProgramName (int, const juce::String&) override {}
 
     //==========================================================================
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    // Reset every parameter to its default value (the editor's Reset button).
+    void resetToDefaults();
+
     //==========================================================================
     juce::AudioProcessorValueTreeState apvts;
+
+    // Factory + user preset handling (used by the editor's preset bar and the
+    // host program interface). Declared after apvts so its reference is valid.
+    PresetManager presetManager { *this, apvts };
 
     // Used by the editor's visualiser (safe to call from the message thread).
     int getParticleSnapshot (ParticleSystem::ParticleSnapshot* dest, int maxOut) const
@@ -70,10 +90,21 @@ public:
         return particleSystem.getSnapshot (dest, maxOut);
     }
 
+    // Latest input peak (0..1), for the editor's threshold meter. Lock-free.
+    float getInputLevel() const noexcept
+    {
+        return inputLevel.load (std::memory_order_relaxed);
+    }
+
    #if defined (PARTICLEDELAY_ENABLE_TEST_HOOKS)
     int getActiveReplayVoiceCountForTests() const noexcept
     {
         return activeVoiceCount;
+    }
+
+    float getOverlapGainForTests() const noexcept
+    {
+        return overlapGainSmoothed.getCurrentValue();
     }
    #endif
 
@@ -104,8 +135,11 @@ private:
     //==========================================================================
     CapturedHitBank   capturedHits;
     StereoSafetyLimiter wetLimiter;
+    WetFinisher       wetFinisher;
     TransientDetector transientDetector;
     ParticleSystem    particleSystem;
+
+    int currentProgram = 0;
 
     std::vector<EchoEvent> echoEvents;   // refilled each control tick
     static constexpr int maxReplayVoices = 256;
@@ -115,13 +149,21 @@ private:
     juce::SmoothedValue<float> mixSmoothed;
     juce::SmoothedValue<float> outputSmoothed;
 
+    // Slews the wet overlap-normalisation gain so the level doesn't jump when a
+    // replay voice starts or ends.
+    juce::SmoothedValue<float> overlapGainSmoothed;
+
+    // Decaying input peak published for the editor's threshold meter.
+    std::atomic<float> inputLevel { 0.0f };
+    float inputLevelEnv = 0.0f;
+
     // Fixed control rate for the particle physics. Lower = slower, more spaced-out
     // scatter and bounces (everything in the sim is per-tick, so this scales it all).
     static constexpr double controlRateHz = 250.0;
     double samplesPerControlTick = 192.0;
     double controlAccumulator    = 0.0;
 
-    static constexpr float maxDelayMs = 12000.0f;
+    static constexpr float maxDelayMs = 20000.0f;
 
     double currentSampleRate = 44100.0;
 
