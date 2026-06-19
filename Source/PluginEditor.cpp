@@ -517,7 +517,7 @@ void ParticleDelayAudioProcessorEditor::paint (juce::Graphics& g)
                   juce::Justification::centredLeft);
     drawMonoText (g, juce::String (particleCount) + " active particles",
                   { 420, footerY, 150, 14 }, 10.0f, textFaint, juce::Justification::centredLeft);
-    drawMonoText (g, "FIELDWORKS AUDIO  *  PARTICLE DELAY 1.0.2  *  VST3 / AU",
+    drawMonoText (g, "PARTICLE DELAY 1.0.2  *  VST3 / AU",
                   { 560, footerY, 320, 14 }, 10.0f, textFaint.darker (0.20f),
                   juce::Justification::centredRight);
 }
