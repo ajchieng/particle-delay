@@ -2,34 +2,59 @@
 
 namespace
 {
-    // Knob order, grouped by section so layout is index-contiguous:
-    //   [0..4] PHYSICS  [5..7] CAPTURE  [8..9] DELAY  [10..11] OUTPUT  [12..17] SPACE
+    // Knob order, grouped by the original editor sections:
+    //   [0..4] PHYSICS  [5..7] CAPTURE  [8..9] DELAY
+    //   [10..11] OUTPUT  [12..17] SPACE
     struct KnobDef { const char* id; const char* name; const char* tip; };
     const std::array<KnobDef, 18> knobDefs {{
-        { "PARTICLES",     "Particles",      "Particles launched per detected hit (1-32)." },                // 0  PHYSICS
-        { "GRAVITY",       "Gravity",        "Fall speed and first-impact time; free-running, not tempo-synced." }, // 1
-        { "BOUNCE",        "Bounce",         "Energy and speed a particle keeps after each floor hit." },     // 2
-        { "SCATTER",       "Scatter",        "Stereo spread and release-time variation of the burst." },      // 3
-        { "DECAY",         "Decay",          "How quickly particle energy (and echo level) fades." },         // 4
-        { "THRESHOLD",     "Threshold",      "Input level needed to trigger a hit. Watch the meter below." }, // 5  CAPTURE
-        { "CAPTURE_MAX_MS","Capture Length", "Maximum stereo audio captured per hit (80-500 ms)." },          // 6
-        { "SMOOTHNESS",    "Smoothness",     "Attack and release fades applied to each replayed hit." },       // 7
-        { "DELAY_MIN_MS",  "Delay Min",      "Start of the audible bounce window. Sync to tempo with the button." }, // 8  DELAY
-        { "DELAY_MAX_MS",  "Delay Max",      "End of the audible bounce window. Sync to tempo with the button." },   // 9
-        { "MIX",           "Mix",            "Balance between the dry input and the echoes." },               // 10 OUTPUT
-        { "OUTPUT",        "Output",         "Final output level." },                                          // 11
-        { "FEEDBACK",      "Feedback",       "Extends echo-train life past the Bounce/Decay limits." },        // 12 SPACE
-        { "WET_HP",        "High Pass",      "High-pass filter on the echoes only." },                         // 13
-        { "WET_LP",        "Low Pass",       "Low-pass filter on the echoes for a darker tail." },             // 14
-        { "DIFFUSE",       "Diffuse",        "Smears sharp echoes into a softer, reverberant wash." },         // 15
-        { "DIFFUSE_SIZE",  "Size",           "Length and spread of the diffusion (active when Diffuse is up)." }, // 16
-        { "WET_WIDTH",     "Width",          "Stereo width of the echoes (0% mono, 200% wide)." },             // 17
+        { "PARTICLES",     "Particles",      "Particles launched per detected hit (1-32)." },
+        { "GRAVITY",       "Gravity",        "Fall speed and first-impact time; free-running, not tempo-synced." },
+        { "BOUNCE",        "Bounce",         "Energy and speed a particle keeps after each floor hit." },
+        { "SCATTER",       "Scatter",        "Stereo spread and release-time variation of the burst." },
+        { "DECAY",         "Decay",          "How quickly particle energy (and echo level) fades." },
+        { "THRESHOLD",     "Threshold",      "Input level needed to trigger a hit. Watch the meter below." },
+        { "CAPTURE_MAX_MS","Capture Length", "Maximum stereo audio captured per hit (80-500 ms)." },
+        { "SMOOTHNESS",    "Smoothness",     "Attack and release fades applied to each replayed hit." },
+        { "DELAY_MIN_MS",  "Delay Min",      "Start of the audible bounce window. Sync to tempo with the button." },
+        { "DELAY_MAX_MS",  "Delay Max",      "End of the audible bounce window. Sync to tempo with the button." },
+        { "MIX",           "Mix",            "Balance between the dry input and the echoes." },
+        { "OUTPUT",        "Output",         "Final output level." },
+        { "FEEDBACK",      "Feedback",       "Extends echo-train life past the Bounce/Decay limits." },
+        { "WET_HP",        "High Pass",      "High-pass filter on the echoes only." },
+        { "WET_LP",        "Low Pass",       "Low-pass filter on the echoes for a darker tail." },
+        { "DIFFUSE",       "Diffuse",        "Smears sharp echoes into a softer, reverberant wash." },
+        { "DIFFUSE_SIZE",  "Size",           "Length and spread of the diffusion (active when Diffuse is up)." },
+        { "WET_WIDTH",     "Width",          "Stereo width of the echoes (0% mono, 200% wide)." },
     }};
 
     // Delay knobs carry an extra tempo-sync row; tracked by name, not a literal.
     constexpr int kThresholdKnob = 5;
     constexpr int kDelayMinKnob = 8;
     constexpr int kDelayMaxKnob = 9;
+
+    constexpr int editorW = 900;
+    constexpr int editorH = 900;
+    constexpr int headerH = 48;
+    constexpr int footerH = 27;
+
+    juce::Colour sectionAccentForIndex (int index)
+    {
+        using namespace ParticlePalette;
+        if (index <= 4)  return accentIce;
+        if (index <= 7)  return accentBlue;
+        if (index <= 9)  return accentCyan;
+        if (index <= 11) return accentWarm;
+        return accentSpace;
+    }
+
+    void drawMonoText (juce::Graphics& g, const juce::String& text,
+                       juce::Rectangle<int> bounds, float size,
+                       juce::Colour colour, juce::Justification justification)
+    {
+        g.setFont (ParticleLookAndFeel::monoFont (size));
+        g.setColour (colour);
+        g.drawText (text, bounds, justification, false);
+    }
 }
 
 //==============================================================================
@@ -50,11 +75,8 @@ void ParticleView::timerCallback()
 
 void ParticleView::paintBoxBackground (juce::Graphics& g, juce::Rectangle<float> area, float alpha)
 {
-    juce::ColourGradient grad (ParticlePalette::panelFill.brighter (0.05f).withAlpha (alpha),
-                               area.getCentreX(), area.getY(),
-                               ParticlePalette::panelFill.darker (0.28f).withAlpha (alpha),
-                               area.getCentreX(), area.getBottom(), false);
-    g.setGradientFill (grad);
+    juce::ignoreUnused (alpha);
+    g.setColour (ParticlePalette::field.withAlpha (0.18f));
     g.fillRect (area);
 }
 
@@ -79,22 +101,26 @@ void ParticleView::updateTrail()
     // Fade the previous frame toward the background: leftover dots become trails.
     paintBoxBackground (ig, area, 0.20f);
 
-    // Pan reference (faint vertical centre line).
-    ig.setColour (juce::Colours::white.withAlpha (0.05f));
-    ig.drawVerticalLine ((int) area.getCentreX(), area.getY(), area.getBottom());
+    ig.setColour (ParticlePalette::accentCyan.withAlpha (0.03f));
+    for (int i = 0; i <= 10; ++i)
+    {
+        const float x = area.getX() + area.getWidth() * (float) i / 10.0f;
+        ig.drawVerticalLine ((int) std::round (x), area.getY(), area.getBottom());
+    }
+    for (int i = 0; i <= 5; ++i)
+    {
+        const float y = area.getY() + area.getHeight() * (float) i / 5.0f;
+        ig.drawHorizontalLine ((int) std::round (y), area.getX(), area.getRight());
+    }
 
-    // Warm glow band along the floor, where bounces fire echoes.
-    const float glowH = area.getHeight() * 0.30f;
-    juce::ColourGradient floorGlow (ParticlePalette::accentWarm.withAlpha (0.0f),
-                                    area.getCentreX(), area.getBottom() - glowH,
-                                    ParticlePalette::accentWarm.withAlpha (0.16f),
-                                    area.getCentreX(), area.getBottom(), false);
-    ig.setGradientFill (floorGlow);
-    ig.fillRect (area.withTop (area.getBottom() - glowH));
-
-    // Floor line.
-    ig.setColour (ParticlePalette::accentCyan.withAlpha (0.5f));
-    ig.drawHorizontalLine ((int) area.getBottom() - 1, area.getX(), area.getRight());
+    juce::Path dashPath;
+    dashPath.startNewSubPath (area.getX(), area.getCentreY());
+    dashPath.lineTo (area.getRight(), area.getCentreY());
+    float dashes[] { 3.0f, 9.0f };
+    juce::Path dashedAxis;
+    juce::PathStrokeType (1.0f).createDashedStroke (dashedAxis, dashPath, dashes, 2);
+    ig.setColour (ParticlePalette::accentCyan.withAlpha (0.07f));
+    ig.fillPath (dashedAxis);
 
     // Particles: colour blends cyan -> amber with energy; size/opacity follow it.
     for (int i = 0; i < numDots; ++i)
@@ -112,13 +138,13 @@ void ParticleView::updateTrail()
         {
             const float impact = energy * juce::jlimit (0.0f, 1.0f, (d.y - 0.86f) / 0.14f);
             const float fr = r * 3.5f;
-            ig.setColour (ParticlePalette::accentWarm.withAlpha (0.28f * impact));
+            ig.setColour (ParticlePalette::accentWarm.withAlpha (0.18f * impact));
             ig.fillEllipse (cx - fr, area.getBottom() - fr, fr * 2.0f, fr * 2.0f);
         }
 
-        ig.setColour (col.withAlpha (0.15f + energy * 0.4f));
-        ig.fillEllipse (cx - r * 1.8f, cy - r * 1.8f, r * 3.6f, r * 3.6f); // glow
-        ig.setColour (juce::Colours::white.withAlpha (0.4f + energy * 0.5f));
+        ig.setColour (col.withAlpha (0.10f + energy * 0.35f));
+        ig.fillEllipse (cx - r * 2.4f, cy - r * 2.4f, r * 4.8f, r * 4.8f); // glow
+        ig.setColour (juce::Colour { 0xffd2f5ff }.withAlpha (0.35f + energy * 0.55f));
         ig.fillEllipse (cx - r, cy - r, r * 2.0f, r * 2.0f);              // core
     }
 }
@@ -138,18 +164,18 @@ void ParticleView::paint (juce::Graphics& g)
     }
     else
     {
-        g.setColour (ParticlePalette::panelFill);
-        g.fillRoundedRectangle (bounds, 6.0f);
+        g.setColour (ParticlePalette::field);
+        g.fillRoundedRectangle (bounds, 2.0f);
     }
 
-    g.setColour (ParticlePalette::accentCyan.withAlpha (0.35f));
-    g.drawRoundedRectangle (bounds, 6.0f, 1.5f);
+    g.setColour (ParticlePalette::accentCyan.withAlpha (0.09f));
+    g.drawRoundedRectangle (bounds, 2.0f, 1.0f);
 
     if (numDots == 0)
     {
         g.setColour (ParticlePalette::textDim);
-        g.setFont (14.0f);
-        g.drawText ("feed me a transient", bounds, juce::Justification::centred);
+        g.setFont (ParticleLookAndFeel::monoFont (10.0f));
+        g.drawText ("FEED ME A TRANSIENT", bounds, juce::Justification::centred);
     }
 }
 
@@ -200,19 +226,20 @@ ParticleDelayAudioProcessorEditor::ParticleDelayAudioProcessorEditor (ParticleDe
     setLookAndFeel (&lookAndFeel);
 
     titleLabel.setText ("PARTICLE DELAY", juce::dontSendNotification);
-    titleLabel.setFont (juce::Font (juce::FontOptions (22.0f, juce::Font::bold)));
-    titleLabel.setColour (juce::Label::textColourId, ParticlePalette::accentCyan);
+    titleLabel.setFont (ParticleLookAndFeel::displayFont (26.0f, juce::Font::bold));
+    titleLabel.setColour (juce::Label::textColourId, ParticlePalette::textPrimary);
     titleLabel.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (titleLabel);
 
-    resetButton.setColour (juce::TextButton::buttonColourId, ParticlePalette::panelFill);
-    resetButton.setColour (juce::TextButton::textColourOffId, ParticlePalette::accentCyan);
+    resetButton.setButtonText ("INIT");
+    resetButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+    resetButton.setColour (juce::TextButton::textColourOffId, ParticlePalette::textDim);
     resetButton.setTooltip ("Reset all parameters to their defaults");
     resetButton.onClick = [this] { proc.resetToDefaults(); };
     addAndMakeVisible (resetButton);
 
-    helpButton.setColour (juce::TextButton::buttonColourId, ParticlePalette::panelFill);
-    helpButton.setColour (juce::TextButton::textColourOffId, ParticlePalette::accentCyan);
+    helpButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+    helpButton.setColour (juce::TextButton::textColourOffId, ParticlePalette::textDim);
     helpButton.setTooltip ("Open the help panel");
     helpButton.onClick = [this]
     {
@@ -230,8 +257,8 @@ ParticleDelayAudioProcessorEditor::ParticleDelayAudioProcessorEditor (ParticleDe
     // Preset bar.
     auto styleBarButton = [this] (juce::TextButton& b, const juce::String& tip)
     {
-        b.setColour (juce::TextButton::buttonColourId, ParticlePalette::panelFill);
-        b.setColour (juce::TextButton::textColourOffId, ParticlePalette::accentCyan);
+        b.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+        b.setColour (juce::TextButton::textColourOffId, ParticlePalette::textDim);
         b.setTooltip (tip);
         addAndMakeVisible (b);
     };
@@ -242,10 +269,25 @@ ParticleDelayAudioProcessorEditor::ParticleDelayAudioProcessorEditor (ParticleDe
 
     prevPresetButton.onClick = [this] { stepPreset (-1); };
     nextPresetButton.onClick = [this] { stepPreset (1); };
+    savePresetButton.setButtonText ("SAVE");
     savePresetButton.onClick = [this] { promptSaveUserPreset(); };
     styleBarButton (prevPresetButton, "Previous preset");
     styleBarButton (nextPresetButton, "Next preset");
     styleBarButton (savePresetButton, "Save the current settings as a user preset");
+    prevPresetButton.setVisible (false);
+    nextPresetButton.setVisible (false);
+
+    compareAButton.onClick = [this] { switchCompareSlot (0); };
+    compareBButton.onClick = [this] { switchCompareSlot (1); };
+    bypassButton.setClickingTogglesState (true);
+    bypassButton.setTooltip ("Bypass the effect and pass the input through");
+    styleBarButton (compareAButton, "Recall/compare slot A");
+    styleBarButton (compareBButton, "Recall/compare slot B");
+    styleBarButton (bypassButton, "Bypass the effect and pass the input through");
+    compareAButton.setColour (juce::TextButton::textColourOffId, ParticlePalette::accentCyan);
+    compareBButton.setColour (juce::TextButton::textColourOffId, ParticlePalette::accentCyan);
+    bypassButton.setColour (juce::TextButton::textColourOffId, ParticlePalette::accentWarm);
+    bypassAttachment = std::make_unique<ButtonAttachment> (proc.apvts, "BYPASS", bypassButton);
 
     refreshPresetList();
 
@@ -257,12 +299,21 @@ ParticleDelayAudioProcessorEditor::ParticleDelayAudioProcessorEditor (ParticleDe
     addDelaySyncControl (delaySyncControls[1], "DELAY_MAX_SYNC", "DELAY_MAX_DIV");
 
     sections[0].title = "PHYSICS";
+    sections[0].accent = ParticlePalette::accentIce;
     sections[1].title = "CAPTURE";
+    sections[1].accent = ParticlePalette::accentBlue;
     sections[2].title = "DELAY";
+    sections[2].accent = ParticlePalette::accentCyan;
     sections[3].title = "OUTPUT";
+    sections[3].accent = ParticlePalette::accentWarm;
     sections[4].title = "SPACE";
+    sections[4].accent = ParticlePalette::accentSpace;
 
-    setSize (820, 847);
+    compareStates[0] = proc.apvts.copyState();
+    compareStates[1] = proc.apvts.copyState();
+    refreshHeaderButtonState();
+
+    setSize (editorW, editorH);
 }
 
 ParticleDelayAudioProcessorEditor::~ParticleDelayAudioProcessorEditor()
@@ -273,21 +324,25 @@ ParticleDelayAudioProcessorEditor::~ParticleDelayAudioProcessorEditor()
 void ParticleDelayAudioProcessorEditor::addKnob (Knob& knob,
                                                  const juce::String& paramID,
                                                  const juce::String& displayName,
-                                                 const juce::String& tooltip)
+                                                 const juce::String& tooltipText)
 {
     knob.slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    knob.slider.setRotaryParameters (juce::degreesToRadians (-135.0f),
+                                     juce::degreesToRadians (135.0f), true);
+    knob.slider.setColour (juce::Slider::rotarySliderFillColourId,
+                           sectionAccentForIndex ((int) (&knob - knobs.data())));
     knob.slider.setColour (juce::Slider::textBoxTextColourId,    ParticlePalette::textPrimary);
     knob.slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    knob.slider.setTooltip (tooltip);
+    knob.slider.setTooltip (tooltipText);
     addAndMakeVisible (knob.slider);
     // Create the internal value Label only after the slider inherits this
     // editor's LookAndFeel. This avoids host/default colours being baked in.
-    knob.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 80, 18);
+    knob.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 128, 32);
 
     knob.label.setText (displayName, juce::dontSendNotification);
     knob.label.setJustificationType (juce::Justification::centred);
-    knob.label.setColour (juce::Label::textColourId, ParticlePalette::textPrimary);
-    knob.label.setFont (juce::Font (juce::FontOptions (13.0f)));
+    knob.label.setColour (juce::Label::textColourId, ParticlePalette::textDim);
+    knob.label.setFont (ParticleLookAndFeel::monoFont (15.0f));
     addAndMakeVisible (knob.label);
 
     knob.attachment = std::make_unique<SliderAttachment> (proc.apvts, paramID, knob.slider);
@@ -299,6 +354,7 @@ void ParticleDelayAudioProcessorEditor::addDelaySyncControl (
     const juce::String& divisionParamID)
 {
     control.syncButton.setButtonText ("Sync");
+    control.syncButton.setColour (juce::ToggleButton::tickColourId, ParticlePalette::accentCyan);
     addAndMakeVisible (control.syncButton);
 
     int itemId = 1;
@@ -317,37 +373,89 @@ void ParticleDelayAudioProcessorEditor::paint (juce::Graphics& g)
 {
     using namespace ParticlePalette;
 
-    // Vertical background gradient for depth.
     auto full = getLocalBounds().toFloat();
-    g.setGradientFill (juce::ColourGradient (bgTop,    full.getCentreX(), full.getY(),
-                                             bgBottom, full.getCentreX(), full.getBottom(), false));
-    g.fillRect (full);
+    g.setGradientFill (juce::ColourGradient (shellTop, full.getCentreX(), full.getY(),
+                                             shellBottom, full.getCentreX(), full.getBottom(), false));
+    g.fillRoundedRectangle (full.reduced (0.5f), 6.0f);
 
-    // Thin accent rule under the title.
-    const float ruleY = (float) titleLabel.getBottom() + 3.0f;
-    g.setColour (accentCyan.withAlpha (0.5f));
-    g.drawLine ((float) titleLabel.getX(), ruleY, full.getRight() - 16.0f, ruleY, 1.0f);
+    g.setColour (accentCyan.withAlpha (0.10f));
+    g.drawRoundedRectangle (full.reduced (0.5f), 6.0f, 1.0f);
+    g.setColour (juce::Colours::black.withAlpha (0.90f));
+    g.drawRoundedRectangle (full.reduced (1.5f), 5.0f, 1.0f);
 
-    // Section cards: drop shadow, fill, hairline border, header.
+    for (int y = 0; y < getHeight(); y += 3)
+    {
+        g.setColour (accentCyan.withAlpha (0.02f));
+        g.drawHorizontalLine (y + 2, 0.0f, (float) getWidth());
+    }
+
+    g.setColour (accentCyan.withAlpha (0.08f));
+    g.drawHorizontalLine (headerH, 0.0f, (float) getWidth());
+    g.drawHorizontalLine (getHeight() - footerH, 0.0f, (float) getWidth());
+
+    // Logo mark from the Figma mockup.
+    const auto logo = juce::Rectangle<float> (17.0f, 11.0f, 26.0f, 26.0f);
+    g.setColour (accentCyan.withAlpha (0.18f));
+    g.drawEllipse (logo, 1.0f);
+    const juce::Point<float> p1 { logo.getCentreX(), logo.getY() + 5.0f };
+    const juce::Point<float> p2 { logo.getX() + 5.5f, logo.getBottom() - 6.5f };
+    const juce::Point<float> p3 { logo.getRight() - 5.5f, logo.getBottom() - 6.5f };
+    g.setColour (accentCyan.withAlpha (0.22f));
+    g.drawLine ({ p1, p2 }, 0.8f);
+    g.drawLine ({ p1, p3 }, 0.8f);
+    g.drawLine ({ p2, p3 }, 0.8f);
+    for (auto p : { p1, p2, p3, logo.getCentre() + juce::Point<float> (0.0f, 3.0f) })
+    {
+        g.setColour (accentCyan.withAlpha (0.20f));
+        g.fillEllipse (p.x - 4.0f, p.y - 4.0f, 8.0f, 8.0f);
+        g.setColour (accentCyan.withAlpha (0.78f));
+        g.fillEllipse (p.x - 2.0f, p.y - 2.0f, 4.0f, 4.0f);
+    }
+
+    drawMonoText (g, "PRESET", { 374, 17, 36, 14 }, 9.0f, textMuted, juce::Justification::centredRight);
+
+    auto fieldBounds = particleView.getBounds().toFloat();
+    g.setColour (field);
+    g.fillRoundedRectangle (fieldBounds, 2.0f);
+    g.setColour (accentCyan.withAlpha (0.09f));
+    g.drawRoundedRectangle (fieldBounds, 2.0f, 1.0f);
+    g.setColour (juce::Colours::black.withAlpha (0.60f));
+    g.drawRoundedRectangle (fieldBounds.reduced (1.0f), 1.5f, 1.0f);
+
+    drawMonoText (g, "PARTICLE FIELD", particleView.getBounds().reduced (11, 7).withHeight (11),
+                  9.5f, accentCyan.withAlpha (0.35f), juce::Justification::centredLeft);
+
+    const int particleCount = (int) proc.apvts.getRawParameterValue ("PARTICLES")->load();
+    const float delayMin = proc.apvts.getRawParameterValue ("DELAY_MIN_MS")->load();
+    drawMonoText (g, juce::String (particleCount) + " particles  *  " + juce::String ((int) delayMin) + "ms",
+                  particleView.getBounds().reduced (11, 7).withHeight (14), 9.5f,
+                  accentCyan.withAlpha (0.35f), juce::Justification::centredRight);
+
+    g.setColour (juce::Colours::white.withAlpha (0.04f));
+    g.drawHorizontalLine (260, 16.0f, (float) editorW - 16.0f);
+
     for (const auto& s : sections)
     {
         if (s.bounds.isEmpty())
             continue;
 
-        juce::DropShadow (juce::Colours::black.withAlpha (0.45f), 12, { 0, 4 })
-            .drawForRectangle (g, s.bounds);
-
-        auto pf = s.bounds.toFloat();
-        g.setColour (panelFill);
-        g.fillRoundedRectangle (pf, 8.0f);
-        g.setColour (accentCyan.withAlpha (0.12f));
-        g.drawRoundedRectangle (pf, 8.0f, 1.0f);
-
-        g.setColour (accentCyan.withAlpha (0.65f));
-        g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
-        g.drawText (s.title, s.bounds.reduced (12, 0).withHeight (20).withY (s.bounds.getY() + 6),
-                    juce::Justification::centredLeft);
+        g.setColour (juce::Colours::white.withAlpha (0.05f));
+        g.drawVerticalLine (s.bounds.getX(), (float) s.bounds.getY(), (float) s.bounds.getBottom());
+        g.setColour (s.accent.withAlpha (0.34f));
+        g.fillRect (s.bounds.getX() + 18, s.bounds.getY() + 19, 18, 1);
+        drawMonoText (g, s.title, { s.bounds.getX() + 44, s.bounds.getY() + 9, 150, 22 },
+                      14.0f, s.accent.withAlpha (0.66f), juce::Justification::centredLeft);
     }
+
+    drawMonoText (g, "CPU --", { 20, editorH - 23, 64, 13 }, 8.5f, textFaint, juce::Justification::centredLeft);
+    drawMonoText (g, "LATENCY --", { 90, editorH - 23, 92, 13 }, 8.5f, textFaint, juce::Justification::centredLeft);
+    drawMonoText (g, "44100 Hz  *  32-bit float", { 196, editorH - 23, 196, 13 }, 8.5f, textFaint,
+                  juce::Justification::centredLeft);
+    drawMonoText (g, juce::String (particleCount) + " active particles",
+                  { 410, editorH - 23, 142, 13 }, 8.5f, textFaint, juce::Justification::centredLeft);
+    drawMonoText (g, "FIELDWORKS AUDIO  *  PARTICLE DELAY 1.0.2  *  VST3 / AU",
+                  { 550, editorH - 23, 330, 13 }, 8.5f, textFaint.darker (0.20f),
+                  juce::Justification::centredRight);
 }
 
 void ParticleDelayAudioProcessorEditor::layoutKnobRow (juce::Rectangle<int> inner, int startIndex, int count)
@@ -360,83 +468,71 @@ void ParticleDelayAudioProcessorEditor::layoutKnobRow (juce::Rectangle<int> inne
     for (int i = 0; i < count; ++i)
     {
         const int index = startIndex + i;
-        // Give the last cell any rounding remainder.
-        auto cell = inner.removeFromLeft (i == count - 1 ? inner.getWidth() : cellW).reduced (6);
-
-        knobs[(size_t) index].label.setBounds (cell.removeFromTop (16));
+        auto cell = inner.removeFromLeft (i == count - 1 ? inner.getWidth() : cellW).reduced (10, 0);
+        auto labelArea = cell.removeFromTop (26);
+        cell.removeFromTop (4);
 
         if (index == kDelayMinKnob || index == kDelayMaxKnob)
         {
-            auto syncArea = cell.removeFromBottom (24);
+            auto syncArea = cell.removeFromBottom (38);
             auto& syncControl = delaySyncControls[(size_t) (index - kDelayMinKnob)];
-            syncControl.syncButton.setBounds (syncArea.removeFromLeft (juce::jmin (50, syncArea.getWidth() / 2)));
-            syncArea.removeFromLeft (4);
-            syncControl.divisionBox.setBounds (syncArea);
-            cell.removeFromBottom (4);
+            syncControl.syncButton.setBounds (syncArea.removeFromLeft (juce::jmin (64, syncArea.getWidth() / 2)));
+            syncArea.removeFromLeft (8);
+            syncControl.divisionBox.setBounds (syncArea.reduced (0, 3));
+            cell.removeFromBottom (8);
         }
         else if (index == kThresholdKnob)
         {
-            // Reserve a thin strip below the knob for the input/threshold meter.
-            thresholdMeter.setBounds (cell.removeFromBottom (8));
-            cell.removeFromBottom (4);
+            thresholdMeter.setBounds (cell.removeFromBottom (12));
+            cell.removeFromBottom (8);
         }
 
         knobs[(size_t) index].slider.setBounds (cell);
+        knobs[(size_t) index].label.setBounds (labelArea);
     }
 }
 
 void ParticleDelayAudioProcessorEditor::resized()
 {
-    auto area = getLocalBounds().reduced (16);
+    titleLabel.setBounds (54, 9, 300, 30);
 
-    auto header = area.removeFromTop (30);
-    helpButton.setBounds (header.removeFromRight (30));
-    header.removeFromRight (8);
-    resetButton.setBounds (header.removeFromRight (64));
-    header.removeFromRight (8);
-    titleLabel.setBounds (header);
-    area.removeFromTop (10); // headroom for the accent rule drawn in paint()
+    presetBox.setBounds (413, 13, 105, 23);
+    savePresetButton.setBounds (527, 13, 37, 23);
+    resetButton.setBounds (572, 13, 37, 23);
+    helpButton.setBounds (617, 13, 24, 23);
+    compareAButton.setBounds (732, 13, 32, 23);
+    compareBButton.setBounds (763, 13, 32, 23);
+    bypassButton.setBounds (803, 13, 71, 23);
+    prevPresetButton.setBounds ({});
+    nextPresetButton.setBounds ({});
 
-    auto presetBar = area.removeFromTop (26);
-    prevPresetButton.setBounds (presetBar.removeFromLeft (28));
-    presetBar.removeFromLeft (4);
-    savePresetButton.setBounds (presetBar.removeFromRight (60));
-    presetBar.removeFromRight (4);
-    nextPresetButton.setBounds (presetBar.removeFromRight (28));
-    presetBar.removeFromRight (6);
-    presetBox.setBounds (presetBar);
-    area.removeFromTop (10);
+    particleView.setBounds (16, 64, editorW - 32, 150);
 
-    particleView.setBounds (area.removeFromTop (180));
-    area.removeFromTop (14);
+    const int top = 238;
+    const int x0 = 16;
+    const int width = editorW - 32;
+    const int gap = 12;
+    const int rowH = 190;
 
-    const int gap = 10;
+    sections[0].bounds = { x0, top, width, rowH };
 
-    // Row A: PHYSICS spans the full width.
-    sections[0].bounds = area.removeFromTop (175);
-    area.removeFromTop (gap);
-
-    // Row B: CAPTURE | DELAY | OUTPUT, widths weighted by knob count (3:2:2).
-    auto rowB = area.removeFromTop (175);
-    area.removeFromTop (gap);
-    const int totalW   = rowB.getWidth() - 2 * gap;
+    auto rowB = juce::Rectangle<int> (x0, top + rowH + gap, width, rowH);
+    const int totalW = rowB.getWidth() - 2 * gap;
     const int wCapture = totalW * 3 / 7;
-    const int wDelay   = totalW * 2 / 7;
-
+    const int wDelay = totalW * 2 / 7;
     sections[1].bounds = rowB.removeFromLeft (wCapture);
     rowB.removeFromLeft (gap);
     sections[2].bounds = rowB.removeFromLeft (wDelay);
     rowB.removeFromLeft (gap);
-    sections[3].bounds = rowB; // OUTPUT takes the remainder
+    sections[3].bounds = rowB;
 
-    // Row C: SPACE (the wet finishing stage) spans the full width.
-    sections[4].bounds = area;
+    sections[4].bounds = { x0, top + (rowH + gap) * 2, width, rowH };
 
-    // Inner content area of a card: padding, minus the header strip.
     auto innerOf = [] (juce::Rectangle<int> b)
     {
-        b = b.reduced (8);
-        b.removeFromTop (18);
+        b.removeFromTop (42);
+        b = b.reduced (8, 0);
+        b.removeFromBottom (14);
         return b;
     };
 
@@ -447,6 +543,35 @@ void ParticleDelayAudioProcessorEditor::resized()
     layoutKnobRow (innerOf (sections[4].bounds), 12, 6); // SPACE
 
     helpPanel.setBounds (getLocalBounds());
+}
+
+void ParticleDelayAudioProcessorEditor::storeActiveCompareState()
+{
+    compareStates[(size_t) activeCompareSlot] = proc.apvts.copyState();
+}
+
+void ParticleDelayAudioProcessorEditor::switchCompareSlot (int slot)
+{
+    slot = juce::jlimit (0, 1, slot);
+    if (slot == activeCompareSlot)
+        return;
+
+    storeActiveCompareState();
+    activeCompareSlot = slot;
+
+    if (compareStates[(size_t) slot].isValid())
+        proc.apvts.replaceState (compareStates[(size_t) slot].createCopy());
+
+    refreshHeaderButtonState();
+}
+
+void ParticleDelayAudioProcessorEditor::refreshHeaderButtonState()
+{
+    compareAButton.setToggleState (activeCompareSlot == 0, juce::dontSendNotification);
+    compareBButton.setToggleState (activeCompareSlot == 1, juce::dontSendNotification);
+    compareAButton.repaint();
+    compareBButton.repaint();
+    bypassButton.repaint();
 }
 
 //==============================================================================
@@ -539,28 +664,28 @@ void ParticleDelayAudioProcessorEditor::promptSaveUserPreset()
 HelpPanel::Body::Body()
 {
     text.setJustification (juce::Justification::topLeft);
-    text.setLineSpacing (3.0f);
+    text.setLineSpacing (5.0f);
 
     const auto title = [&] (const juce::String& s)
     {
-        text.append (s + "\n", juce::Font (juce::FontOptions (18.0f, juce::Font::bold)),
-                     ParticlePalette::accentCyan);
+        text.append (s + "\n", ParticleLookAndFeel::displayFont (24.0f, juce::Font::bold),
+                     ParticlePalette::textPrimary);
     };
     const auto para = [&] (const juce::String& s)
     {
-        text.append (s + "\n", juce::Font (juce::FontOptions (13.5f)),
+        text.append (s + "\n", ParticleLookAndFeel::monoFont (13.5f),
                      ParticlePalette::textPrimary);
     };
     const auto section = [&] (const juce::String& s)
     {
-        text.append ("\n" + s + "\n", juce::Font (juce::FontOptions (13.0f, juce::Font::bold)),
-                     ParticlePalette::accentWarm);
+        text.append ("\n" + s + "\n", ParticleLookAndFeel::monoFont (14.5f, juce::Font::bold),
+                     ParticlePalette::accentCyan.withAlpha (0.82f));
     };
     const auto param = [&] (const juce::String& name, const juce::String& desc)
     {
-        text.append (name + "  —  ", juce::Font (juce::FontOptions (13.0f, juce::Font::bold)),
+        text.append (name + "  *  ", ParticleLookAndFeel::monoFont (13.5f, juce::Font::bold),
                      ParticlePalette::textPrimary);
-        text.append (desc + "\n", juce::Font (juce::FontOptions (13.0f)),
+        text.append (desc + "\n", ParticleLookAndFeel::monoFont (13.0f),
                      ParticlePalette::textDim);
     };
 
@@ -621,8 +746,10 @@ HelpPanel::HelpPanel()
     addAndMakeVisible (viewport);
     viewport.setViewedComponent (&body, false);
     viewport.setScrollBarsShown (true, false);
+    viewport.setScrollBarThickness (9);
 
-    closeButton.setColour (juce::TextButton::buttonColourId, ParticlePalette::panelFill);
+    closeButton.setButtonText ("CLOSE");
+    closeButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
     closeButton.setColour (juce::TextButton::textColourOffId, ParticlePalette::accentCyan);
     closeButton.onClick = [this] { if (onClose) onClose(); };
     addAndMakeVisible (closeButton);
@@ -632,33 +759,55 @@ HelpPanel::~HelpPanel() = default;
 
 juce::Rectangle<int> HelpPanel::cardBounds() const
 {
-    return getLocalBounds().reduced (juce::jmin (60, getWidth() / 8),
-                                     juce::jmin (40, getHeight() / 10));
+    return getLocalBounds().reduced (34, 44);
 }
 
 void HelpPanel::paint (juce::Graphics& g)
 {
-    // Dim the editor behind the panel, then draw the card.
-    g.fillAll (juce::Colours::black.withAlpha (0.6f));
+    using namespace ParticlePalette;
+
+    g.fillAll (juce::Colours::black.withAlpha (0.72f));
 
     const auto card = cardBounds();
-    juce::DropShadow (juce::Colours::black.withAlpha (0.6f), 24, { 0, 6 })
-        .drawForRectangle (g, card);
-
     auto cf = card.toFloat();
-    g.setColour (ParticlePalette::panelFill);
-    g.fillRoundedRectangle (cf, 10.0f);
-    g.setColour (ParticlePalette::accentCyan.withAlpha (0.4f));
-    g.drawRoundedRectangle (cf, 10.0f, 1.5f);
+    g.setGradientFill (juce::ColourGradient (shellTop.brighter (0.05f), cf.getCentreX(), cf.getY(),
+                                             shellBottom, cf.getCentreX(), cf.getBottom(), false));
+    g.fillRoundedRectangle (cf, 5.0f);
+
+    for (int y = card.getY(); y < card.getBottom(); y += 3)
+    {
+        g.setColour (accentCyan.withAlpha (0.025f));
+        g.drawHorizontalLine (y + 2, (float) card.getX(), (float) card.getRight());
+    }
+
+    g.setColour (accentCyan.withAlpha (0.18f));
+    g.drawRoundedRectangle (cf.reduced (0.5f), 5.0f, 1.0f);
+    g.setColour (juce::Colours::black.withAlpha (0.70f));
+    g.drawRoundedRectangle (cf.reduced (1.5f), 4.0f, 1.0f);
+
+    auto header = card.reduced (20, 0).withHeight (49);
+    g.setColour (accentCyan.withAlpha (0.12f));
+    g.drawHorizontalLine (header.getBottom(), (float) card.getX() + 1.0f, (float) card.getRight() - 1.0f);
+
+    g.setFont (ParticleLookAndFeel::displayFont (19.0f, juce::Font::bold));
+    g.setColour (textPrimary);
+    g.drawText ("PARAMETER GUIDE", header.removeFromLeft (220), juce::Justification::centredLeft, false);
+
+    g.setFont (ParticleLookAndFeel::monoFont (8.5f));
+    g.setColour (textMuted.brighter (0.65f));
+    g.drawText ("PARTICLE DELAY  *  CONTROL REFERENCE", header.removeFromLeft (260),
+                juce::Justification::centredLeft, false);
 }
 
 void HelpPanel::resized()
 {
-    auto inner = cardBounds().reduced (18);
+    auto inner = cardBounds().reduced (20, 0);
 
-    auto top = inner.removeFromTop (28);
-    closeButton.setBounds (top.removeFromRight (72));
-    inner.removeFromTop (10);
+    auto top = inner.removeFromTop (49);
+    closeButton.setBounds (top.removeFromRight (86).withSizeKeepingCentre (76, 28));
+    inner.removeFromTop (18);
+    inner.removeFromBottom (18);
+    inner = inner.withTrimmedLeft (8).withTrimmedRight (8);
 
     viewport.setBounds (inner);
 

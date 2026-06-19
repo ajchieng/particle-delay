@@ -139,4 +139,7 @@ void PresetManager::migrateState (juce::ValueTree& state)
     for (const auto& [id, value] : spaceDefaults)
         if (! state.hasProperty (id))
             state.setProperty (id, value, nullptr);
+
+    if (! state.hasProperty ("BYPASS"))
+        state.setProperty ("BYPASS", false, nullptr);
 }

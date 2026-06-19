@@ -136,6 +136,7 @@ private:
     struct Section
     {
         juce::String title;
+        juce::Colour accent;
         juce::Rectangle<int> bounds;
     };
 
@@ -146,6 +147,9 @@ private:
                               const juce::String& divisionParamID);
     // Lay out 'count' knobs in a single row across 'inner', starting at knob index.
     void layoutKnobRow (juce::Rectangle<int> inner, int startIndex, int count);
+    void storeActiveCompareState();
+    void switchCompareSlot (int slot);
+    void refreshHeaderButtonState();
 
     // Preset bar helpers.
     void refreshPresetList();          // repopulate the combo from the PresetManager
@@ -166,6 +170,9 @@ private:
     juce::Label      titleLabel;
     juce::TextButton resetButton { "Reset" };
     juce::TextButton helpButton { "?" };
+    juce::TextButton compareAButton { "A" };
+    juce::TextButton compareBButton { "B" };
+    juce::TextButton bypassButton { "BYPASS" };
     ParticleView     particleView;
     MeterView        thresholdMeter;
     HelpPanel        helpPanel;
@@ -177,6 +184,9 @@ private:
     juce::TextButton savePresetButton { "Save" };
     juce::StringArray userPresetNames;          // index aligns with combo ids >= userPresetIdBase
     static constexpr int userPresetIdBase = 1000;
+    std::unique_ptr<ButtonAttachment> bypassAttachment;
+    std::array<juce::ValueTree, 2> compareStates;
+    int activeCompareSlot = 0;
 
     static constexpr int numKnobs = 18;
     std::array<Knob, numKnobs> knobs;

@@ -10,6 +10,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(JUCE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/JUCE" CACHE PATH "Path to the JUCE framework")
 add_subdirectory("${JUCE_PATH}" "${CMAKE_BINARY_DIR}/JUCE")
 
+juce_add_binary_data(ParticleDelayAssets
+    SOURCES
+        Assets/Fonts/DMMono-Regular.ttf
+        Assets/Fonts/Rajdhani-Regular.ttf
+        Assets/Fonts/Rajdhani-SemiBold.ttf)
+
 juce_add_plugin(ParticleDelay
     COMPANY_NAME            "Chieng"
     PRODUCT_NAME            "Particle Delay"
@@ -46,6 +52,7 @@ target_compile_definitions(ParticleDelay PUBLIC
 
 target_link_libraries(ParticleDelay
     PRIVATE
+        ParticleDelayAssets
         juce::juce_audio_utils
         juce::juce_dsp
     PUBLIC
@@ -84,6 +91,7 @@ if(PARTICLEDELAY_BUILD_TESTS)
 
     target_link_libraries(ParticleDelayTests
         PRIVATE
+            ParticleDelayAssets
             juce::juce_audio_utils
             juce::juce_dsp
         PUBLIC

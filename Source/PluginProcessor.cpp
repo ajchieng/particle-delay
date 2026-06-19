@@ -187,6 +187,9 @@ ParticleDelayAudioProcessor::createParameterLayout()
         AudioParameterFloatAttributes().withStringFromValueFunction (
             [] (float v, int) { return String (roundToInt (v * 100.0f)) + " %"; })));
 
+    layout.add (std::make_unique<AudioParameterBool> (
+        ParameterID { "BYPASS", 1 }, "Bypass", false));
+
     return layout;
 }
 
@@ -318,6 +321,21 @@ void ParticleDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
 
     const int numSamples  = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
+
+    if (apvts.getRawParameterValue ("BYPASS")->load() >= 0.5f)
+    {
+        const float meterRelease = std::exp (-1.0f / (0.3f * (float) currentSampleRate));
+        for (int sample = 0; sample < numSamples; ++sample)
+        {
+            const float inL = finiteOrZero (buffer.getSample (0, sample));
+            const float inR = numChannels > 1 ? finiteOrZero (buffer.getSample (1, sample)) : inL;
+            const float inPeak = juce::jmax (std::abs (inL), std::abs (inR));
+            inputLevelEnv = inPeak > inputLevelEnv ? inPeak : inputLevelEnv * meterRelease;
+        }
+
+        inputLevel.store (inputLevelEnv, std::memory_order_relaxed);
+        return;
+    }
 
     // Read parameters once per block (smoothed ones are ramped per sample).
     const float particleCount = apvts.getRawParameterValue ("PARTICLES")->load();

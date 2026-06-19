@@ -48,6 +48,19 @@ namespace
         for (int i = 0; i < component.getNumChildComponents(); ++i)
             inspectLabels (*component.getChildComponent (i), labelCount, darkLabelCount);
     }
+
+    juce::Button* findButton (juce::Component& component, const juce::String& text)
+    {
+        if (auto* button = dynamic_cast<juce::Button*> (&component);
+            button != nullptr && button->getButtonText() == text)
+            return button;
+
+        for (int i = 0; i < component.getNumChildComponents(); ++i)
+            if (auto* button = findButton (*component.getChildComponent (i), text))
+                return button;
+
+        return nullptr;
+    }
 }
 
 int main()
@@ -63,8 +76,31 @@ int main()
         int darkLabelCount = 0;
         inspectLabels (*editor, labelCount, darkLabelCount);
 
+        check (editor->getWidth() == 900 && editor->getHeight() == 900,
+               "editor uses the enlarged 900x900 frame");
         check (labelCount >= 38, "editor exposes all control labels");
         check (darkLabelCount == 0, "all rendered label text resolves to a light colour");
+
+        auto* buttonA = findButton (*editor, "A");
+        auto* buttonB = findButton (*editor, "B");
+        auto* bypass = findButton (*editor, "BYPASS");
+        check (buttonA != nullptr && buttonB != nullptr && bypass != nullptr,
+               "editor exposes the A/B and bypass buttons");
+
+        if (buttonA != nullptr && buttonB != nullptr && bypass != nullptr)
+        {
+            auto* mix = processor.apvts.getParameter ("MIX");
+            mix->setValueNotifyingHost (0.2f);
+            buttonB->onClick();
+            mix->setValueNotifyingHost (0.8f);
+            buttonA->onClick();
+            check (std::abs (mix->getValue() - 0.2f) < 0.001f,
+                   "A/B buttons recall independent parameter states");
+
+            bypass->setToggleState (true, juce::sendNotificationSync);
+            check (processor.apvts.getRawParameterValue ("BYPASS")->load() >= 0.5f,
+                   "bypass button updates the processor parameter");
+        }
     }
 
     std::printf ("DelayBuffer:\n");
@@ -785,6 +821,38 @@ int main()
 
         check (std::isfinite (quiet) && std::isfinite (loud), "input level stays finite");
         check (loud > quiet && loud > 0.5f, "input meter rises with input level");
+    }
+
+    std::printf ("Bypass:\n");
+    {
+        constexpr int block = 128;
+        ParticleDelayAudioProcessor processor;
+        processor.setPlayConfigDetails (2, 2, sr, block);
+        processor.prepareToPlay (sr, block);
+        processor.apvts.getParameter ("BYPASS")->setValueNotifyingHost (1.0f);
+
+        juce::AudioBuffer<float> buffer (2, block);
+        for (int i = 0; i < block; ++i)
+        {
+            buffer.setSample (0, i, std::sin ((float) i * 0.11f) * 0.5f);
+            buffer.setSample (1, i, std::cos ((float) i * 0.07f) * 0.3f);
+        }
+
+        juce::AudioBuffer<float> original;
+        original.makeCopyOf (buffer);
+
+        juce::MidiBuffer midi;
+        processor.processBlock (buffer, midi);
+
+        bool unchanged = true;
+        for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                unchanged = unchanged
+                    && std::abs (buffer.getSample (channel, i)
+                                 - original.getSample (channel, i)) < 1.0e-7f;
+
+        check (unchanged, "bypass leaves the input buffer unchanged");
+        check (processor.getInputLevel() > 0.2f, "bypass still updates the input meter");
     }
 
     std::printf ("Presets:\n");
