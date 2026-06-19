@@ -79,13 +79,15 @@ void ParticleLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int
                                             float sliderPos, float rotaryStartAngle, float rotaryEndAngle,
                                             juce::Slider& slider)
 {
-    auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat().withTrimmedBottom (30.0f).reduced (2.0f);
+    // The value read-out lives in the centre of the knob (see getSliderLayout),
+    // so the dial is free to fill the whole cell instead of reserving a row.
+    auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (2.0f);
     const auto centre = bounds.getCentre();
     const float radius   = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f;
-    const float lineW    = juce::jlimit (2.0f, 3.5f, radius * 0.045f);
-    const float arcR     = radius - 5.0f;
+    const float lineW    = juce::jlimit (2.5f, 6.0f, radius * 0.07f);
+    const float arcR     = radius - 4.0f;
     const float angle    = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
-    const float bodyR    = juce::jmax (4.0f, arcR - 6.0f);
+    const float bodyR    = juce::jmax (4.0f, arcR - 12.0f);
 
     const bool active = slider.isMouseButtonDown() || slider.isMouseOverOrDragging();
     const juce::Colour arcColour = active ? sliderAccent (slider).brighter (0.25f)
@@ -127,9 +129,9 @@ void ParticleLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int
     const auto dot = centre + juce::Point<float> { std::sin (angle) * (arcR - 4.0f),
                                                   -std::cos (angle) * (arcR - 4.0f) };
     g.setColour (arcColour.withAlpha (0.35f));
-    g.fillEllipse (dot.x - 5.0f, dot.y - 5.0f, 10.0f, 10.0f);
+    g.fillEllipse (dot.x - 6.5f, dot.y - 6.5f, 13.0f, 13.0f);
     g.setColour (arcColour);
-    g.fillEllipse (dot.x - 2.0f, dot.y - 2.0f, 4.0f, 4.0f);
+    g.fillEllipse (dot.x - 3.0f, dot.y - 3.0f, 6.0f, 6.0f);
 }
 
 juce::Label* ParticleLookAndFeel::createSliderTextBox (juce::Slider& slider)
@@ -146,6 +148,19 @@ juce::Label* ParticleLookAndFeel::createSliderTextBox (juce::Slider& slider)
     label->setJustificationType (juce::Justification::centred);
 
     return label;
+}
+
+juce::Slider::SliderLayout ParticleLookAndFeel::getSliderLayout (juce::Slider& slider)
+{
+    // Knob fills the whole component; the value sits in a band across its centre.
+    juce::Slider::SliderLayout layout;
+    auto b = slider.getLocalBounds();
+
+    const int textH = 24;
+    layout.textBoxBounds = juce::Rectangle<int> (b.getX(), b.getCentreY() - textH / 2,
+                                                 b.getWidth(), textH);
+    layout.sliderBounds = b;
+    return layout;
 }
 
 //==============================================================================
@@ -178,14 +193,14 @@ juce::Label* ParticleLookAndFeel::createComboBoxTextBox (juce::ComboBox& box)
 
     label->setColour (juce::Label::textColourId, accentCyan);
     label->setColour (juce::TextEditor::textColourId, accentCyan);
-    label->setFont (monoFont (12.0f));
+    label->setFont (monoFont (16.0f));
 
     return label;
 }
 
 juce::Font ParticleLookAndFeel::getComboBoxFont (juce::ComboBox&)
 {
-    return monoFont (12.0f);
+    return monoFont (16.0f);
 }
 
 void ParticleLookAndFeel::positionComboBoxText (juce::ComboBox& box, juce::Label& label)
@@ -213,7 +228,7 @@ void ParticleLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButto
     g.drawRoundedRectangle (bounds, corner, 1.0f);
 
     g.setColour (on ? colour : textDim);
-    g.setFont (monoFont (11.0f));
+    g.setFont (monoFont (15.0f));
     g.drawText (button.getButtonText(), bounds, juce::Justification::centred);
 }
 
@@ -248,7 +263,7 @@ void ParticleLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& b
 {
     juce::ignoreUnused (shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
 
-    g.setFont (monoFont (11.0f));
+    g.setFont (monoFont (14.0f));
     g.setColour (button.isEnabled() ? button.findColour (juce::TextButton::textColourOffId)
                                          .withAlpha (button.getToggleState() ? 1.0f : 0.75f)
                                     : textDim);

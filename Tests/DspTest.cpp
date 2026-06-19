@@ -76,8 +76,8 @@ int main()
         int darkLabelCount = 0;
         inspectLabels (*editor, labelCount, darkLabelCount);
 
-        check (editor->getWidth() == 900 && editor->getHeight() == 900,
-               "editor uses the enlarged 900x900 frame");
+        check (editor->getWidth() == 900 && editor->getHeight() == 740,
+               "editor uses the 900x740 frame");
         check (labelCount >= 38, "editor exposes all control labels");
         check (darkLabelCount == 0, "all rendered label text resolves to a light colour");
 

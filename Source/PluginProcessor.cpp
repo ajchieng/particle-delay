@@ -44,6 +44,7 @@ ParticleDelayAudioProcessor::createParameterLayout()
         return v >= 1000.0f ? String (v / 1000.0f, 1) + " kHz"
                             : String (roundToInt (v)) + " Hz";
     };
+    auto dec2 = [] (float v, int) { return String (v, 2); };
 
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "MIX", 1 }, "Mix",
@@ -89,7 +90,9 @@ ParticleDelayAudioProcessor::createParameterLayout()
         NormalisableRange<float> r (0.90f, 0.9999f);
         r.setSkewForCentre (0.995f);    // useful resolution close to 1.0
         layout.add (std::make_unique<AudioParameterFloat> (
-            ParameterID { "DECAY", 1 }, "Decay", r, 0.995f));
+            ParameterID { "DECAY", 1 }, "Decay", r, 0.995f,
+            AudioParameterFloatAttributes().withStringFromValueFunction (
+                [] (float v, int) { return String (v, 3); }))); // 0.90-0.9999: 2dp is too coarse
     }
 
     {
@@ -138,7 +141,8 @@ ParticleDelayAudioProcessor::createParameterLayout()
         NormalisableRange<float> r (0.001f, 1.0f);
         r.setSkewForCentre (0.1f);
         layout.add (std::make_unique<AudioParameterFloat> (
-            ParameterID { "THRESHOLD", 1 }, "Threshold", r, 0.15f));
+            ParameterID { "THRESHOLD", 1 }, "Threshold", r, 0.15f,
+            AudioParameterFloatAttributes().withStringFromValueFunction (dec2)));
     }
 
     layout.add (std::make_unique<AudioParameterFloat> (

@@ -111,6 +111,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
@@ -151,6 +152,11 @@ private:
     void switchCompareSlot (int slot);
     void refreshHeaderButtonState();
 
+    // Collapse/expand the particle-field canvas / SPACE row, resizing the editor.
+    void setFieldExpanded (bool expanded);
+    void setSpaceExpanded (bool expanded);
+    void applyEditorSize();
+
     // Preset bar helpers.
     void refreshPresetList();          // repopulate the combo from the PresetManager
     void applySelectedPreset();        // load whatever the combo currently shows
@@ -187,6 +193,14 @@ private:
     std::unique_ptr<ButtonAttachment> bypassAttachment;
     std::array<juce::ValueTree, 2> compareStates;
     int activeCompareSlot = 0;
+
+    // Collapse state and the rects paint()/mouseDown() share.
+    bool fieldExpanded { true };
+    bool spaceExpanded { false };
+    juce::Rectangle<int> fieldArea;          // whole section (header strip + canvas)
+    juce::Rectangle<int> fieldHeaderBounds;  // clickable strip: title + chevron
+    juce::Rectangle<int> spaceHeaderBounds;  // clickable SPACE title bar
+    int fieldDividerY { 0 };
 
     static constexpr int numKnobs = 18;
     std::array<Knob, numKnobs> knobs;
