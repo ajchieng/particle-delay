@@ -12,9 +12,9 @@ add_subdirectory("${JUCE_PATH}" "${CMAKE_BINARY_DIR}/JUCE")
 
 juce_add_binary_data(ParticleDelayAssets
     SOURCES
-        Assets/Fonts/DMMono-Regular.ttf
-        Assets/Fonts/Rajdhani-Regular.ttf
-        Assets/Fonts/Rajdhani-SemiBold.ttf)
+        Assets/Fonts/GeistMono-Regular.ttf
+        Assets/Fonts/BarlowCondensed-Regular.ttf
+        Assets/Fonts/BarlowCondensed-SemiBold.ttf)
 
 juce_add_plugin(ParticleDelay
     COMPANY_NAME            "Chieng"

@@ -535,13 +535,6 @@ void ParticleDelayAudioProcessorEditor::paint (juce::Graphics& g)
                          spaceExpanded, s.accent.withAlpha (0.80f));
     }
 
-    if (! sections[2].bounds.isEmpty())
-    {
-        auto timingLabel = sections[2].bounds.withTrimmedLeft (94).withTrimmedRight (154).withHeight (24);
-        drawMonoText (g, "TIMING", timingLabel, 10.0f, sections[2].accent.withAlpha (0.58f),
-                      juce::Justification::centredLeft);
-    }
-
     const int footerY = getHeight() - 19;
     drawMonoText (g, juce::String (particleCount) + " active particles",
                   { 20, footerY, 200, 14 }, 10.0f, textFaint, juce::Justification::centredLeft);

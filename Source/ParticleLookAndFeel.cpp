@@ -55,8 +55,8 @@ ParticleLookAndFeel::ParticleLookAndFeel()
 
 juce::Font ParticleLookAndFeel::monoFont (float height, int styleFlags)
 {
-    static auto typeface = typefaceFromData (BinaryData::DMMonoRegular_ttf,
-                                             BinaryData::DMMonoRegular_ttfSize);
+    static auto typeface = typefaceFromData (BinaryData::GeistMonoRegular_ttf,
+                                             BinaryData::GeistMonoRegular_ttfSize);
     auto options = typeface != nullptr ? juce::FontOptions (typeface).withHeight (height)
                                        : juce::FontOptions (height);
     return juce::Font (options).withStyle (styleFlags);
@@ -64,10 +64,10 @@ juce::Font ParticleLookAndFeel::monoFont (float height, int styleFlags)
 
 juce::Font ParticleLookAndFeel::displayFont (float height, int styleFlags)
 {
-    static auto regular = typefaceFromData (BinaryData::RajdhaniRegular_ttf,
-                                            BinaryData::RajdhaniRegular_ttfSize);
-    static auto semiBold = typefaceFromData (BinaryData::RajdhaniSemiBold_ttf,
-                                             BinaryData::RajdhaniSemiBold_ttfSize);
+    static auto regular = typefaceFromData (BinaryData::BarlowCondensedRegular_ttf,
+                                            BinaryData::BarlowCondensedRegular_ttfSize);
+    static auto semiBold = typefaceFromData (BinaryData::BarlowCondensedSemiBold_ttf,
+                                             BinaryData::BarlowCondensedSemiBold_ttfSize);
     auto chosen = (styleFlags & juce::Font::bold) != 0 ? semiBold : regular;
     auto options = chosen != nullptr ? juce::FontOptions (chosen).withHeight (height)
                                      : juce::FontOptions (height);
