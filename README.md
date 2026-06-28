@@ -11,9 +11,10 @@ Each floor bounce replays that particle's own captured hit:
 | energy            | echo **gain** (decays over time) |
 | speed             | **brightness** (low-pass cutoff of the echo) |
 
-Gravity sets the first bounce independently of host tempo, while bounce,
-scatter and decay shape the later motion so the echo train accelerates and
-evolves instead of repeating on a fixed grid.
+Gravity can run freely, lock the first bounce to a tempo division, or offset a
+tempo-locked fall in Hybrid mode. Bounce, scatter and decay shape the later
+motion so the echo train accelerates and evolves instead of repeating on a
+fixed grid.
 
 ## Controls
 
@@ -24,7 +25,9 @@ every control and how the parameters interact.
 |-------|-------|---------|---------|
 | Mix       | 0–100 %        | 35 %     | Dry/wet blend |
 | Particles | 1–32           | 8        | Particles launched per transient |
-| Gravity   | 0.0625x–16x    | 1.0x     | Free-running vertical acceleration |
+| Gravity   | 0.0625x–16x    | 1.0x     | Free timing speed or Hybrid offset |
+| Timing Mode | Free / Tempo / Hybrid | Free | How particle fall timing is calculated |
+| Timing Division | note values | 1/4 | Note value for Tempo and Hybrid timing |
 | Bounce    | 10–99 %        | 72 %     | Velocity/energy kept after a floor hit |
 | Scatter   | 0–100 %        | 50 %     | Randomness of launch positions/velocities |
 | Decay     | 0.90–0.9999    | 0.995    | Per-tick energy decay (how long particles live) |
@@ -43,8 +46,8 @@ being scattered.
 - **TransientDetector** — a peak follower with a 50 ms cooldown reports note
   onsets so one drum hit spawns particles once, not every sample.
 - **ParticleSystem** — advances particle physics at a fixed **250 Hz control
-  rate** (independent of the host sample rate). Gravity determines the first
-  fall time; bounce/scatter/decay shape later motion. Floor contacts emit
+  rate** (independent of the host sample rate). The timing mode determines the
+  first fall time; bounce/scatter/decay shape later motion. Floor contacts emit
   `EchoEvent`s.
 - **CapturedHitBank** — adaptively records 80 ms up to the selected maximum,
   trims a decayed tail after 20 ms of silence, and keeps up to 16 hits separate.
@@ -97,16 +100,25 @@ cmake --build build --config Release --target ParticleDelayTests
 
 ## Starting points / presets
 
-Dial these in by hand (saved with the host's own preset system):
+The factory preset menu includes practical starting points for common sources:
 
-**1. Subtle Scatter** — Mix 25 %, Particles 5, Gravity 0.75x, Bounce 65 %,
-Scatter 30 %, Decay 0.990, Delay 60–700 ms.
-
-**2. Bouncing Ball** — Mix 40 %, Particles 8, Gravity 1.0x, Bounce 82 %,
-Scatter 45 %, Decay 0.995, Delay 40–1200 ms.
-
-**3. Chaos Cloud** — Mix 65 %, Particles 20, Gravity 3.0x, Bounce 92 %,
-Scatter 90 %, Decay 0.998, Delay 20–1800 ms.
+| Preset | Use |
+|--------|-----|
+| Subtle Scatter | Low-mix insert effect for gentle movement |
+| Bouncing Ball | The core bouncing-delay sound |
+| Chaos Cloud | Dense, dramatic particle scatter |
+| Lush | Diffused SPACE-panel echo cloud |
+| Drum Tight Slap | Short, controlled drum echo |
+| Drum Room Scatter | Wider drum-loop movement |
+| Snare Ghosts | Snare repeats without a huge tail |
+| Vocal Doubler Cloud | Subtle vocal width and motion |
+| Vocal Throw | More obvious delay throw for sends or automation |
+| Piano Sparkle | Bright, light repeats for chords |
+| Guitar Halo | Mid-width ambience for guitar or synth plucks |
+| Dub Send | Darker, feedback-forward return effect |
+| Ambient Wash | Long, diffuse, softened tail |
+| Bass Safe Space | High-passed wet signal so lows stay clean |
+| Wide Micro Scatter | Subtle stereo texture at low mix |
 
 ## Sound design targets
 

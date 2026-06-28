@@ -9,7 +9,9 @@ launches particles, and every floor bounce creates an echo of that hit.
 |---|---:|---:|---|
 | Mix | 0-100% | 35% | Balance between dry input and echoes |
 | Particles | 1-32 | 8 | Number of particles launched per detected hit |
-| Gravity | 0.0625x to 16x | 1.0x | Free-running vertical acceleration |
+| Gravity | 0.0625x to 16x | 1.0x | Free timing speed or Hybrid offset |
+| Timing Mode | Free, Tempo, Hybrid | Free | How first-impact timing is calculated |
+| Timing Division | note values | 1/4 | Note value for Tempo and Hybrid timing |
 | Bounce | 10-99% | 72% | How strongly particles rebound |
 | Scatter | 0-100% | 50% | Stereo spread and release-time variation |
 | Decay | 0.90-0.9999 | 0.995 | How quickly particle energy fades |
@@ -53,9 +55,10 @@ becomes too loud.
 
 ## Gravity
 
-Controls how strongly particles accelerate toward the floor. It is independent
-of host tempo. At `1.0x`, a particle reaches its first impact in approximately
-250 ms from the default spawn height.
+Controls how strongly particles accelerate toward the floor in **Free** timing
+mode. In **Hybrid** timing mode it becomes an offset around the selected tempo
+division. At `1.0x` in Free mode, a particle reaches its first impact in
+approximately 250 ms from the default spawn height.
 
 | Setting | Feel and approximate first impact |
 |---|---|
@@ -70,6 +73,31 @@ of host tempo. At `1.0x`, a particle reaches its first impact in approximately
 
 Impact time changes with the inverse square root of the multiplier. Every
 impact is produced by the particle physics rather than a regular step sequencer.
+
+## Timing Mode
+
+Sets how the first particle impact is timed:
+
+- **Free:** Existing behavior. Gravity sets the fall speed directly, independent
+  of host tempo.
+- **Tempo:** The selected Timing Division sets the first-impact time from the
+  host BPM. Gravity is ignored for the fall speed.
+- **Hybrid:** The selected Timing Division sets the center timing, then Gravity
+  pushes the fall looser or tighter around that synced value.
+
+Existing sessions and presets default to Free, so their sound is unchanged until
+you select Tempo or Hybrid. The standalone app uses 120 BPM when no host tempo
+is available.
+
+## Timing Division
+
+Selects the note value used by Tempo and Hybrid timing modes. It offers `1/64T`,
+`1/64`, `1/32T`, `1/32`, `1/16T`, `1/16`, `1/8T`, `1/8`, `1/4T`, `1/4`, `1/2`,
+`1/2D`, and `1/1`.
+
+Delay Min and Delay Max still have their own independent sync controls. Timing
+Division only changes particle fall timing; it does not change the audible
+delay window by itself.
 
 ## Bounce
 

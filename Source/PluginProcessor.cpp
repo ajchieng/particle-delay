@@ -12,6 +12,11 @@ namespace
         "1/4", "1/4T", "1/8D", "1/8", "1/8T", "1/16", "1/16T"
     }};
     constexpr int kDefaultSyncIndex = 3;
+    constexpr int kDefaultTimingDivisionIndex = 9; // 1/4
+
+    const std::array<const char*, 3> kTimingModeChoices {{
+        "Free", "Tempo", "Hybrid"
+    }};
 
     float finiteOrZero (float value)
     {
@@ -38,13 +43,13 @@ ParticleDelayAudioProcessor::createParameterLayout()
     AudioProcessorValueTreeState::ParameterLayout layout;
 
     auto pct = [] (float v, int) { return String (roundToInt (v * 100.0f)) + " %"; };
-    auto ms  = [] (float v, int) { return String (v, 0) + " ms"; };
+    auto ms  = [] (float v, int) { return String (roundToInt (v)) + " ms"; };
     auto hz  = [] (float v, int)
     {
         return v >= 1000.0f ? String (v / 1000.0f, 1) + " kHz"
                             : String (roundToInt (v)) + " Hz";
     };
-    auto dec2 = [] (float v, int) { return String (v, 2); };
+    auto dec1 = [] (float v, int) { return String (v, 1); };
 
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "MIX", 1 }, "Mix",
@@ -73,8 +78,21 @@ ParticleDelayAudioProcessor::createParameterLayout()
             AudioParameterFloatAttributes()
                 .withLabel ("x")
                 .withStringFromValueFunction (
-                    [] (float value, int) { return String (value, 2) + "x"; })));
+                    [] (float value, int) { return String (value, 1) + "x"; })));
     }
+
+    {
+        StringArray timingModes;
+        for (const auto* choice : kTimingModeChoices)
+            timingModes.add (choice);
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { "TIMING_MODE", 1 }, "Timing Mode", timingModes, 0));
+    }
+
+    layout.add (std::make_unique<AudioParameterChoice> (
+        ParameterID { "TIMING_DIV", 1 }, "Timing Division",
+        DelaySync::labels(), kDefaultTimingDivisionIndex));
 
     layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { "BOUNCE", 1 }, "Bounce",
@@ -111,7 +129,7 @@ ParticleDelayAudioProcessor::createParameterLayout()
 
     {
         NormalisableRange<float> r (1.0f, maxDelayMs);
-        r.setSkewForCentre (120.0f);
+        r.setSkewForCentre (250.0f);
         layout.add (std::make_unique<AudioParameterFloat> (
             ParameterID { "DELAY_MIN_MS", 1 }, "Delay Min", r, 60.0f,
             AudioParameterFloatAttributes().withStringFromValueFunction (ms)));
@@ -142,7 +160,7 @@ ParticleDelayAudioProcessor::createParameterLayout()
         r.setSkewForCentre (0.1f);
         layout.add (std::make_unique<AudioParameterFloat> (
             ParameterID { "THRESHOLD", 1 }, "Threshold", r, 0.15f,
-            AudioParameterFloatAttributes().withStringFromValueFunction (dec2)));
+            AudioParameterFloatAttributes().withStringFromValueFunction (dec1)));
     }
 
     layout.add (std::make_unique<AudioParameterFloat> (
@@ -347,6 +365,8 @@ void ParticleDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     const float scatter       = apvts.getRawParameterValue ("SCATTER")->load();
     const float decay         = apvts.getRawParameterValue ("DECAY")->load();
     const float gravityAmount = apvts.getRawParameterValue ("GRAVITY")->load();
+    const int timingMode      = (int) apvts.getRawParameterValue ("TIMING_MODE")->load();
+    const int timingDivision  = (int) apvts.getRawParameterValue ("TIMING_DIV")->load();
     const float captureMaxMs  = apvts.getRawParameterValue ("CAPTURE_MAX_MS")->load();
     const float smoothness    = apvts.getRawParameterValue ("SMOOTHNESS")->load();
     const float threshold     = apvts.getRawParameterValue ("THRESHOLD")->load();
@@ -363,7 +383,7 @@ void ParticleDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     outputSmoothed.setTargetValue (
         juce::Decibels::decibelsToGain (apvts.getRawParameterValue ("OUTPUT")->load()));
 
-    // Host tempo is used only by the optional Delay Min/Max window sync.
+    // Host tempo is used by optional Delay Min/Max sync and tempo-aware timing.
     double bpm = 120.0;   // fallback when the host gives no tempo (e.g. standalone)
     if (auto* ph = getPlayHead())
         if (auto pos = ph->getPosition())
@@ -382,8 +402,9 @@ void ParticleDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
         ? DelaySync::milliseconds ((int) apvts.getRawParameterValue ("DELAY_MAX_DIV")->load(), bpm)
         : apvts.getRawParameterValue ("DELAY_MAX_MS")->load();
 
-    const float gravity = ParticleSystem::gravityForMultiplier (
-        gravityAmount, controlRateHz, ParticleSystem::spawnHeight);
+    const float gravity = ParticleSystem::gravityForTimingMode (
+        timingMode, timingDivision, gravityAmount, bpm, controlRateHz,
+        ParticleSystem::spawnHeight);
 
     // Per-sample decay for the input meter (~300 ms release).
     const float meterRelease = std::exp (-1.0f / (0.3f * (float) currentSampleRate));

@@ -118,9 +118,18 @@ private:
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
     using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
 
+    struct EditableValueSlider : juce::Slider
+    {
+        void mouseDoubleClick (const juce::MouseEvent&) override
+        {
+            if (isEnabled() && isTextBoxEditable())
+                showTextBox();
+        }
+    };
+
     struct Knob
     {
-        juce::Slider slider;
+        EditableValueSlider slider;
         juce::Label  label;
         std::unique_ptr<SliderAttachment> attachment;
     };
@@ -130,6 +139,14 @@ private:
         juce::ToggleButton syncButton;
         juce::ComboBox divisionBox;
         std::unique_ptr<ButtonAttachment> buttonAttachment;
+        std::unique_ptr<ComboBoxAttachment> divisionAttachment;
+    };
+
+    struct TimingControl
+    {
+        juce::ComboBox modeBox;
+        juce::ComboBox divisionBox;
+        std::unique_ptr<ComboBoxAttachment> modeAttachment;
         std::unique_ptr<ComboBoxAttachment> divisionAttachment;
     };
 
@@ -146,6 +163,7 @@ private:
     void addDelaySyncControl (DelaySyncControl& control,
                               const juce::String& syncParamID,
                               const juce::String& divisionParamID);
+    void addTimingControl();
     // Lay out 'count' knobs in a single row across 'inner', starting at knob index.
     void layoutKnobRow (juce::Rectangle<int> inner, int startIndex, int count);
     void storeActiveCompareState();
@@ -205,6 +223,7 @@ private:
     static constexpr int numKnobs = 18;
     std::array<Knob, numKnobs> knobs;
     std::array<DelaySyncControl, 2> delaySyncControls;
+    TimingControl timingControl;
     std::array<Section, 5> sections;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParticleDelayAudioProcessorEditor)

@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include "DelaySync.h"
 #include "Particle.h"
 #include "EchoEvent.h"
 
@@ -86,6 +87,34 @@ public:
              * juce::jlimit (minimumGravityMultiplier,
                              maximumGravityMultiplier,
                              multiplier);
+    }
+
+    static float gravityForTimingMode (int timingMode,
+                                       int divisionIndex,
+                                       float multiplier,
+                                       double bpm,
+                                       double controlRateHz,
+                                       float dropHeight)
+    {
+        if (timingMode <= 0)
+            return gravityForMultiplier (multiplier, controlRateHz, dropHeight);
+
+        const float syncedGravity = gravityForFallTime (
+            DelaySync::milliseconds (divisionIndex, bpm) * 0.001,
+            controlRateHz,
+            dropHeight);
+
+        if (timingMode == 1)
+            return syncedGravity;
+
+        const float hybridScale = juce::jlimit (
+            0.5f,
+            2.0f,
+            std::sqrt (juce::jlimit (minimumGravityMultiplier,
+                                     maximumGravityMultiplier,
+                                     multiplier)));
+
+        return syncedGravity * hybridScale;
     }
 
 private:

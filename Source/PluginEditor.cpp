@@ -8,7 +8,7 @@ namespace
     struct KnobDef { const char* id; const char* name; const char* tip; };
     const std::array<KnobDef, 18> knobDefs {{
         { "PARTICLES",     "Particles",      "Particles launched per detected hit (1-32)." },
-        { "GRAVITY",       "Gravity",        "Fall speed and first-impact time; free-running, not tempo-synced." },
+        { "GRAVITY",       "Gravity",        "Fall speed and first-impact time; offset amount in Hybrid timing." },
         { "BOUNCE",        "Bounce",         "Energy and speed a particle keeps after each floor hit." },
         { "SCATTER",       "Scatter",        "Stereo spread and release-time variation of the burst." },
         { "DECAY",         "Decay",          "How quickly particle energy (and echo level) fades." },
@@ -31,6 +31,7 @@ namespace
     constexpr int kThresholdKnob = 5;
     constexpr int kDelayMinKnob = 8;
     constexpr int kDelayMaxKnob = 9;
+    const std::array<const char*, 3> kTimingModeLabels {{ "Free", "Tempo", "Hybrid" }};
 
     constexpr int editorW = 900;
     constexpr int headerH = 44;
@@ -346,6 +347,7 @@ ParticleDelayAudioProcessorEditor::ParticleDelayAudioProcessorEditor (ParticleDe
 
     addDelaySyncControl (delaySyncControls[0], "DELAY_MIN_SYNC", "DELAY_MIN_DIV");
     addDelaySyncControl (delaySyncControls[1], "DELAY_MAX_SYNC", "DELAY_MAX_DIV");
+    addTimingControl();
 
     sections[0].title = "PHYSICS";
     sections[0].accent = ParticlePalette::accentIce;
@@ -383,6 +385,7 @@ void ParticleDelayAudioProcessorEditor::addKnob (Knob& knob,
     knob.slider.setColour (juce::Slider::textBoxTextColourId,    ParticlePalette::textPrimary);
     knob.slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     knob.slider.setTooltip (tooltipText);
+    knob.slider.getProperties().set ("opensTextEditorOnDoubleClick", true);
     addAndMakeVisible (knob.slider);
     // Create the internal value Label only after the slider inherits this
     // editor's LookAndFeel. This avoids host/default colours being baked in.
@@ -416,6 +419,29 @@ void ParticleDelayAudioProcessorEditor::addDelaySyncControl (
         proc.apvts, syncParamID, control.syncButton);
     control.divisionAttachment = std::make_unique<ComboBoxAttachment> (
         proc.apvts, divisionParamID, control.divisionBox);
+}
+
+void ParticleDelayAudioProcessorEditor::addTimingControl()
+{
+    int itemId = 1;
+    for (const auto* label : kTimingModeLabels)
+        timingControl.modeBox.addItem (label, itemId++);
+    timingControl.modeBox.setJustificationType (juce::Justification::centred);
+    timingControl.modeBox.setTooltip (
+        "Particle fall timing: Free follows Gravity, Tempo locks to the note value, Hybrid locks then lets Gravity push or pull the feel.");
+    addAndMakeVisible (timingControl.modeBox);
+
+    itemId = 1;
+    for (const auto& division : DelaySync::divisions)
+        timingControl.divisionBox.addItem (division.label, itemId++);
+    timingControl.divisionBox.setJustificationType (juce::Justification::centred);
+    timingControl.divisionBox.setTooltip ("Note value used by Tempo and Hybrid timing modes");
+    addAndMakeVisible (timingControl.divisionBox);
+
+    timingControl.modeAttachment = std::make_unique<ComboBoxAttachment> (
+        proc.apvts, "TIMING_MODE", timingControl.modeBox);
+    timingControl.divisionAttachment = std::make_unique<ComboBoxAttachment> (
+        proc.apvts, "TIMING_DIV", timingControl.divisionBox);
 }
 
 void ParticleDelayAudioProcessorEditor::paint (juce::Graphics& g)
@@ -510,6 +536,13 @@ void ParticleDelayAudioProcessorEditor::paint (juce::Graphics& g)
                          spaceExpanded, s.accent.withAlpha (0.80f));
     }
 
+    if (! sections[2].bounds.isEmpty())
+    {
+        auto timingLabel = sections[2].bounds.withTrimmedLeft (94).withTrimmedRight (154).withHeight (24);
+        drawMonoText (g, "TIMING", timingLabel, 10.0f, sections[2].accent.withAlpha (0.58f),
+                      juce::Justification::centredLeft);
+    }
+
     const int footerY = getHeight() - 19;
     drawMonoText (g, "CPU --", { 20, footerY, 70, 14 }, 10.0f, textFaint, juce::Justification::centredLeft);
     drawMonoText (g, "LATENCY --", { 96, footerY, 100, 14 }, 10.0f, textFaint, juce::Justification::centredLeft);
@@ -592,8 +625,8 @@ void ParticleDelayAudioProcessorEditor::resized()
 
     auto rowB = juce::Rectangle<int> (x0, top + rowH + gap, width, rowH);
     const int totalW = rowB.getWidth() - 2 * gap;
-    const int wCapture = totalW * 3 / 7;
-    const int wDelay = totalW * 2 / 7;
+    const int wCapture = totalW * 5 / 12;
+    const int wDelay = totalW * 4 / 12;
     sections[1].bounds = rowB.removeFromLeft (wCapture);
     rowB.removeFromLeft (gap);
     sections[2].bounds = rowB.removeFromLeft (wDelay);
@@ -616,6 +649,12 @@ void ParticleDelayAudioProcessorEditor::resized()
     layoutKnobRow (innerOf (sections[1].bounds), 5,  3); // CAPTURE
     layoutKnobRow (innerOf (sections[2].bounds), 8,  2); // DELAY
     layoutKnobRow (innerOf (sections[3].bounds), 10, 2); // OUTPUT
+
+    auto timingArea = sections[2].bounds.withTrimmedLeft (132).withTrimmedRight (8).withHeight (22);
+    timingArea.setY (sections[2].bounds.getY() + 2);
+    timingControl.modeBox.setBounds (timingArea.removeFromLeft (80));
+    timingArea.removeFromLeft (6);
+    timingControl.divisionBox.setBounds (timingArea);
 
     for (int i = 12; i < 18; ++i)
     {
@@ -814,7 +853,7 @@ HelpPanel::Body::Body()
 
     section ("PHYSICS");
     param ("Particles", "How many particles each detected hit launches (1-32).");
-    param ("Gravity", "Fall speed and first-impact time, free-running and independent of tempo (~250 ms at 1.0x).");
+    param ("Gravity", "Fall speed in Free timing; push/pull offset amount in Hybrid timing (~250 ms at 1.0x).");
     param ("Bounce", "How much speed and energy a particle keeps after each floor hit.");
     param ("Scatter", "Stereo spread and how widely particle release times are staggered.");
     param ("Decay", "How quickly particle energy - and therefore echo level - fades.");
@@ -825,6 +864,8 @@ HelpPanel::Body::Body()
     param ("Smoothness", "Attack and release fades applied to every replayed hit.");
 
     section ("DELAY");
+    param ("Timing Mode", "Free follows Gravity, Tempo locks the first impact to the note value, Hybrid locks then offsets with Gravity.");
+    param ("Timing Division", "Note value used by Tempo and Hybrid timing modes. Standalone uses 120 BPM.");
     param ("Delay Min", "Start of the audible bounce window; earlier bounces stay silent. Sync to tempo with the button.");
     param ("Delay Max", "End of the audible bounce window; later bounces stay silent. Sync to tempo with the button.");
 

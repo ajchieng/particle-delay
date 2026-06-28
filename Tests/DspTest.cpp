@@ -49,6 +49,24 @@ namespace
             inspectLabels (*component.getChildComponent (i), labelCount, darkLabelCount);
     }
 
+    void inspectDoubleClickEditableSliders (juce::Component& component,
+                                            int& sliderCount,
+                                            int& editableSliderCount)
+    {
+        if (auto* slider = dynamic_cast<juce::Slider*> (&component))
+        {
+            ++sliderCount;
+
+            if ((bool) slider->getProperties()["opensTextEditorOnDoubleClick"])
+                ++editableSliderCount;
+        }
+
+        for (int i = 0; i < component.getNumChildComponents(); ++i)
+            inspectDoubleClickEditableSliders (*component.getChildComponent (i),
+                                               sliderCount,
+                                               editableSliderCount);
+    }
+
     juce::Button* findButton (juce::Component& component, const juce::String& text)
     {
         if (auto* button = dynamic_cast<juce::Button*> (&component);
@@ -74,12 +92,17 @@ int main()
         std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
         int labelCount = 0;
         int darkLabelCount = 0;
+        int sliderCount = 0;
+        int editableSliderCount = 0;
         inspectLabels (*editor, labelCount, darkLabelCount);
+        inspectDoubleClickEditableSliders (*editor, sliderCount, editableSliderCount);
 
-        check (editor->getWidth() == 900 && editor->getHeight() == 740,
-               "editor uses the 900x740 frame");
+        check (editor->getWidth() == 900 && editor->getHeight() == 574,
+               "editor uses the default 900x574 frame");
         check (labelCount >= 38, "editor exposes all control labels");
         check (darkLabelCount == 0, "all rendered label text resolves to a light colour");
+        check (sliderCount == 18 && editableSliderCount == sliderCount,
+               "all rotary knobs open text entry on double-click");
 
         auto* buttonA = findButton (*editor, "A");
         auto* buttonB = findButton (*editor, "B");
@@ -135,6 +158,14 @@ int main()
                "1/4 note converts to 500 ms at 120 BPM");
         check (std::abs (DelaySync::milliseconds (12, 20.0) - 12000.0f) < 0.01f,
                "1/1 note fits the 12-second range at the minimum BPM");
+    }
+
+    std::printf ("Parameter ranges:\n");
+    {
+        ParticleDelayAudioProcessor processor;
+        const auto delayMinRange = processor.apvts.getParameterRange ("DELAY_MIN_MS");
+        check (std::abs (delayMinRange.convertFrom0to1 (0.5f) - 250.0f) < 1.0f,
+               "Delay Min knob midpoint is less heavily skewed");
     }
 
     std::printf ("CapturedHitBank:\n");
@@ -439,6 +470,33 @@ int main()
                      lowTimes[0], neutralTimes[0], highTimes[0]);
     }
 
+    std::printf ("Timing modes:\n");
+    {
+        constexpr double controlRate = 250.0;
+        const float freeGravity = ParticleSystem::gravityForTimingMode (
+            0, 9, 4.0f, 120.0, controlRate, ParticleSystem::spawnHeight);
+        const float existingFreeGravity = ParticleSystem::gravityForMultiplier (
+            4.0f, controlRate, ParticleSystem::spawnHeight);
+        check (std::abs (freeGravity - existingFreeGravity) < 1.0e-8f,
+               "Free timing mode preserves the existing Gravity behavior");
+
+        const float tempoGravity = ParticleSystem::gravityForTimingMode (
+            1, 9, 16.0f, 120.0, controlRate, ParticleSystem::spawnHeight);
+        const float expectedQuarterGravity = ParticleSystem::gravityForFallTime (
+            0.5, controlRate, ParticleSystem::spawnHeight);
+        check (std::abs (tempoGravity - expectedQuarterGravity) < 1.0e-8f,
+               "Tempo timing mode targets the selected note division and ignores Gravity");
+
+        const float hybridLow = ParticleSystem::gravityForTimingMode (
+            2, 9, 0.25f, 120.0, controlRate, ParticleSystem::spawnHeight);
+        const float hybridHigh = ParticleSystem::gravityForTimingMode (
+            2, 9, 4.0f, 120.0, controlRate, ParticleSystem::spawnHeight);
+        check (hybridLow < expectedQuarterGravity
+                   && hybridHigh > expectedQuarterGravity
+                   && hybridHigh < existingFreeGravity,
+               "Hybrid timing mode syncs the centre while Gravity offsets the feel");
+    }
+
     std::printf ("Bounce window:\n");
     {
         constexpr double controlRate = 250.0;
@@ -479,6 +537,11 @@ int main()
 
         check (processor.apvts.getRawParameterValue ("SYNC") != nullptr,
                "legacy Sync remains registered for old sessions and automation");
+        check (processor.apvts.getRawParameterValue ("TIMING_MODE") != nullptr
+                   && processor.apvts.getRawParameterValue ("TIMING_DIV") != nullptr,
+               "timing mode parameters are available for new sessions and automation");
+        check (processor.apvts.getRawParameterValue ("TIMING_MODE")->load() < 0.5f,
+               "Timing Mode defaults to Free for old-session compatibility");
         check (std::abs (processor.apvts.getRawParameterValue ("GRAVITY")->load()
                         - ParticleSystem::defaultGravityMultiplier) < 0.0001f,
                "states without Gravity load at the 1.0x default");
@@ -501,6 +564,9 @@ int main()
         check (processor.apvts.getRawParameterValue ("SYNC") != nullptr
                    && processor.apvts.getRawParameterValue ("GRAVITY") != nullptr,
                "legacy Sync and persisted Gravity parameters are both available");
+        check (processor.apvts.getRawParameterValue ("TIMING_MODE") != nullptr
+                   && processor.apvts.getRawParameterValue ("TIMING_DIV") != nullptr,
+               "timing mode parameters are available during processor rendering");
         processor.apvts.getRawParameterValue ("SYNC")->store (6.0f);
         processor.apvts.getRawParameterValue ("GRAVITY")->store (
             ParticleSystem::maximumGravityMultiplier);
@@ -860,7 +926,7 @@ int main()
         ParticleDelayAudioProcessor processor;
         auto& pm = processor.presetManager;
 
-        check (pm.getNumFactoryPresets() >= 5, "factory preset bank is populated");
+        check (pm.getNumFactoryPresets() >= 16, "factory preset bank includes a practical release set");
         check (processor.getNumPrograms() == pm.getNumFactoryPresets(),
                "program count matches the factory preset bank");
 
@@ -884,6 +950,42 @@ int main()
         processor.setCurrentProgram (lush);
         check (processor.apvts.getRawParameterValue ("FEEDBACK")->load() > 0.1f,
                "the Lush preset engages the SPACE panel");
+
+        const std::array<const char*, 11> practicalPresetNames {{
+            "Drum Tight Slap",
+            "Drum Room Scatter",
+            "Snare Ghosts",
+            "Vocal Doubler Cloud",
+            "Vocal Throw",
+            "Piano Sparkle",
+            "Guitar Halo",
+            "Dub Send",
+            "Ambient Wash",
+            "Bass Safe Space",
+            "Wide Micro Scatter",
+        }};
+
+        bool allPracticalPresetsExist = true;
+        for (const auto* name : practicalPresetNames)
+            allPracticalPresetsExist = allPracticalPresetsExist && indexOfPreset (name) >= 0;
+        check (allPracticalPresetsExist, "practical factory presets cover common source/use cases");
+
+        const int bassSafe = indexOfPreset ("Bass Safe Space");
+        if (bassSafe >= 0)
+        {
+            processor.setCurrentProgram (bassSafe);
+            check (processor.apvts.getRawParameterValue ("WET_HP")->load() >= 160.0f,
+                   "Bass Safe Space high-passes the wet signal");
+        }
+
+        const int dubSend = indexOfPreset ("Dub Send");
+        if (dubSend >= 0)
+        {
+            processor.setCurrentProgram (dubSend);
+            check (processor.apvts.getRawParameterValue ("FEEDBACK")->load() >= 0.55f
+                       && processor.apvts.getRawParameterValue ("WET_LP")->load() <= 6500.0f,
+                   "Dub Send uses a darker feedback-forward wet path");
+        }
 
         // User preset round-trip (writes to the real preset dir; cleaned up after).
         const juce::String testName = "__pd_test_preset__";

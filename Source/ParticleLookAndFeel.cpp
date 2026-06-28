@@ -147,6 +147,11 @@ juce::Label* ParticleLookAndFeel::createSliderTextBox (juce::Slider& slider)
     label->setFont (monoFont (16.0f));
     label->setJustificationType (juce::Justification::centred);
 
+    // The value read-out sits in a band across the centre of the knob. Let mouse
+    // events fall through to the slider beneath so the whole dial is a drag surface
+    // (otherwise the label would swallow clicks over the middle of the knob).
+    label->setInterceptsMouseClicks (false, false);
+
     return label;
 }
 
