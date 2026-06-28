@@ -148,9 +148,11 @@ juce::Label* ParticleLookAndFeel::createSliderTextBox (juce::Slider& slider)
     label->setJustificationType (juce::Justification::centred);
 
     // The value read-out sits in a band across the centre of the knob. Let mouse
-    // events fall through to the slider beneath so the whole dial is a drag surface
-    // (otherwise the label would swallow clicks over the middle of the knob).
-    label->setInterceptsMouseClicks (false, false);
+    // events fall through the label to the slider beneath so the whole dial is a
+    // drag surface (otherwise the label would swallow clicks over the middle of the
+    // knob). The second flag keeps child clicks live so the text editor that opens
+    // on double-click still receives clicks for caret placement and selection.
+    label->setInterceptsMouseClicks (false, true);
 
     return label;
 }

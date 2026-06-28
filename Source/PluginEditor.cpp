@@ -385,7 +385,6 @@ void ParticleDelayAudioProcessorEditor::addKnob (Knob& knob,
     knob.slider.setColour (juce::Slider::textBoxTextColourId,    ParticlePalette::textPrimary);
     knob.slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     knob.slider.setTooltip (tooltipText);
-    knob.slider.getProperties().set ("opensTextEditorOnDoubleClick", true);
     addAndMakeVisible (knob.slider);
     // Create the internal value Label only after the slider inherits this
     // editor's LookAndFeel. This avoids host/default colours being baked in.
@@ -544,12 +543,8 @@ void ParticleDelayAudioProcessorEditor::paint (juce::Graphics& g)
     }
 
     const int footerY = getHeight() - 19;
-    drawMonoText (g, "CPU --", { 20, footerY, 70, 14 }, 10.0f, textFaint, juce::Justification::centredLeft);
-    drawMonoText (g, "LATENCY --", { 96, footerY, 100, 14 }, 10.0f, textFaint, juce::Justification::centredLeft);
-    drawMonoText (g, "44100 Hz  *  32-bit float", { 206, footerY, 200, 14 }, 10.0f, textFaint,
-                  juce::Justification::centredLeft);
     drawMonoText (g, juce::String (particleCount) + " active particles",
-                  { 420, footerY, 150, 14 }, 10.0f, textFaint, juce::Justification::centredLeft);
+                  { 20, footerY, 200, 14 }, 10.0f, textFaint, juce::Justification::centredLeft);
     drawMonoText (g, "PARTICLE DELAY 1.0.2  *  VST3 / AU",
                   { 560, footerY, 320, 14 }, 10.0f, textFaint.darker (0.20f),
                   juce::Justification::centredRight);
