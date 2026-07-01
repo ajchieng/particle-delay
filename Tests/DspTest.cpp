@@ -49,6 +49,37 @@ namespace
             inspectLabels (*component.getChildComponent (i), labelCount, darkLabelCount);
     }
 
+    void inspectVisibleLabelFit (juce::Component& component,
+                                 int& visibleLabelCount,
+                                 int& overflowingLabelCount,
+                                 juce::String& firstOverflowingLabel)
+    {
+        if (auto* label = dynamic_cast<juce::Label*> (&component))
+        {
+            if (label->isVisible() && label->getWidth() > 0 && label->getText().isNotEmpty())
+            {
+                ++visibleLabelCount;
+
+                const auto availableWidth = (float) label->getLocalBounds().reduced (2, 0).getWidth();
+                const auto textWidth = juce::GlyphArrangement::getStringWidth (label->getFont(),
+                                                                               label->getText());
+
+                if (textWidth > availableWidth + 0.5f)
+                {
+                    ++overflowingLabelCount;
+                    if (firstOverflowingLabel.isEmpty())
+                        firstOverflowingLabel = label->getText();
+                }
+            }
+        }
+
+        for (int i = 0; i < component.getNumChildComponents(); ++i)
+            inspectVisibleLabelFit (*component.getChildComponent (i),
+                                    visibleLabelCount,
+                                    overflowingLabelCount,
+                                    firstOverflowingLabel);
+    }
+
     void inspectDoubleClickEditableSliders (juce::Component& component,
                                             int& sliderCount,
                                             int& editableSliderCount)
@@ -92,15 +123,23 @@ int main()
         std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
         int labelCount = 0;
         int darkLabelCount = 0;
+        int visibleLabelCount = 0;
+        int overflowingLabelCount = 0;
         int sliderCount = 0;
         int editableSliderCount = 0;
+        juce::String firstOverflowingLabel;
         inspectLabels (*editor, labelCount, darkLabelCount);
+        inspectVisibleLabelFit (*editor, visibleLabelCount, overflowingLabelCount, firstOverflowingLabel);
         inspectDoubleClickEditableSliders (*editor, sliderCount, editableSliderCount);
 
         check (editor->getWidth() == 900 && editor->getHeight() == 574,
                "editor uses the default 900x574 frame");
         check (labelCount >= 38, "editor exposes all control labels");
         check (darkLabelCount == 0, "all rendered label text resolves to a light colour");
+        check (visibleLabelCount >= 20 && overflowingLabelCount == 0,
+               "visible editor labels fit their assigned bounds");
+        if (firstOverflowingLabel.isNotEmpty())
+            std::printf ("    first overflowing label: %s\n", firstOverflowingLabel.toRawUTF8());
         check (sliderCount == 18 && editableSliderCount == sliderCount,
                "all rotary knobs open text entry on double-click");
 

@@ -13,7 +13,7 @@ namespace
         { "SCATTER",       "Scatter",        "Stereo spread and release-time variation of the burst." },
         { "DECAY",         "Decay",          "How quickly particle energy (and echo level) fades." },
         { "THRESHOLD",     "Threshold",      "Input level needed to trigger a hit. Watch the meter below." },
-        { "CAPTURE_MAX_MS","Capture Length", "Maximum stereo audio captured per hit (80-500 ms)." },
+        { "CAPTURE_MAX_MS","Capture",        "Maximum stereo audio captured per hit (80-500 ms)." },
         { "SMOOTHNESS",    "Smoothness",     "Attack and release fades applied to each replayed hit." },
         { "DELAY_MIN_MS",  "Delay Min",      "Start of the audible bounce window. Sync to tempo with the button." },
         { "DELAY_MAX_MS",  "Delay Max",      "End of the audible bounce window. Sync to tempo with the button." },
@@ -276,7 +276,7 @@ ParticleDelayAudioProcessorEditor::ParticleDelayAudioProcessorEditor (ParticleDe
     setLookAndFeel (&lookAndFeel);
 
     titleLabel.setText ("PARTICLE DELAY", juce::dontSendNotification);
-    titleLabel.setFont (ParticleLookAndFeel::displayFont (32.0f, juce::Font::bold));
+    titleLabel.setFont (ParticleLookAndFeel::displayFont (31.0f, juce::Font::bold));
     titleLabel.setColour (juce::Label::textColourId, ParticlePalette::textPrimary);
     titleLabel.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (titleLabel);
@@ -384,6 +384,7 @@ void ParticleDelayAudioProcessorEditor::addKnob (Knob& knob,
                            sectionAccentForIndex ((int) (&knob - knobs.data())));
     knob.slider.setColour (juce::Slider::textBoxTextColourId,    ParticlePalette::textPrimary);
     knob.slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    knob.slider.getProperties().set ("opensTextEditorOnDoubleClick", true);
     knob.slider.setTooltip (tooltipText);
     addAndMakeVisible (knob.slider);
     // Create the internal value Label only after the slider inherits this
@@ -393,7 +394,7 @@ void ParticleDelayAudioProcessorEditor::addKnob (Knob& knob,
     knob.label.setText (displayName, juce::dontSendNotification);
     knob.label.setJustificationType (juce::Justification::centred);
     knob.label.setColour (juce::Label::textColourId, ParticlePalette::textDim);
-    knob.label.setFont (ParticleLookAndFeel::monoFont (24.0f));
+    knob.label.setFont (ParticleLookAndFeel::monoFont (17.5f));
     addAndMakeVisible (knob.label);
 
     knob.attachment = std::make_unique<SliderAttachment> (proc.apvts, paramID, knob.slider);
@@ -486,7 +487,7 @@ void ParticleDelayAudioProcessorEditor::paint (juce::Graphics& g)
         g.fillEllipse (p.x - 2.0f, p.y - 2.0f, 4.0f, 4.0f);
     }
 
-    drawMonoText (g, "PRESET", { 360, 16, 50, 14 }, 11.0f, textMuted, juce::Justification::centredRight);
+    drawMonoText (g, "PRESET", { 360, 16, 50, 14 }, 10.0f, textMuted, juce::Justification::centredRight);
 
     const int particleCount = (int) proc.apvts.getRawParameterValue ("PARTICLES")->load();
     const int delayMin      = (int) proc.apvts.getRawParameterValue ("DELAY_MIN_MS")->load();
@@ -505,10 +506,10 @@ void ParticleDelayAudioProcessorEditor::paint (juce::Graphics& g)
     }
 
     auto labelRow = fieldHeaderBounds.reduced (11, 0);
-    drawMonoText (g, "PARTICLE FIELD", labelRow, 12.0f,
+    drawMonoText (g, "PARTICLE FIELD", labelRow, 11.0f,
                   accentCyan.withAlpha (0.55f), juce::Justification::centredLeft);
     drawMonoText (g, juce::String (particleCount) + " particles  *  " + juce::String (delayMin) + "ms",
-                  labelRow.withTrimmedRight (20), 12.0f,
+                  labelRow.withTrimmedRight (20), 11.0f,
                   accentCyan.withAlpha (0.35f), juce::Justification::centredRight);
 
     drawChevron (g, (float) fieldHeaderBounds.getRight() - 13.0f,
@@ -525,10 +526,10 @@ void ParticleDelayAudioProcessorEditor::paint (juce::Graphics& g)
 
         g.setColour (juce::Colours::white.withAlpha (0.05f));
         g.drawVerticalLine (s.bounds.getX(), (float) s.bounds.getY(), (float) s.bounds.getBottom());
-        g.setColour (s.accent.withAlpha (0.34f));
-        g.fillRect (s.bounds.getX() + 18, s.bounds.getY() + 13, 22, 1);
-        drawMonoText (g, s.title, { s.bounds.getX() + 46, s.bounds.getY() + 1, 240, 24 },
-                      23.0f, s.accent.withAlpha (0.66f), juce::Justification::centredLeft);
+        g.setColour (s.accent.withAlpha (0.30f));
+        g.fillRect (s.bounds.getX() + 20, s.bounds.getY() + 13, 18, 1);
+        drawMonoText (g, s.title, { s.bounds.getX() + 46, s.bounds.getY() + 2, 240, 22 },
+                      18.0f, s.accent.withAlpha (0.68f), juce::Justification::centredLeft);
 
         if (s.title == "SPACE")
             drawChevron (g, (float) s.bounds.getRight() - 16.0f, (float) (s.bounds.getY() + 13),
@@ -561,8 +562,8 @@ void ParticleDelayAudioProcessorEditor::layoutKnobRow (juce::Rectangle<int> inne
         {
             auto syncArea = cell.removeFromBottom (32);
             auto& syncControl = delaySyncControls[(size_t) (index - kDelayMinKnob)];
-            syncControl.syncButton.setBounds (syncArea.removeFromLeft (juce::jmin (64, syncArea.getWidth() / 2)));
-            syncArea.removeFromLeft (8);
+            syncControl.syncButton.setBounds (syncArea.removeFromLeft (juce::jmin (48, syncArea.getWidth() / 2)));
+            syncArea.removeFromLeft (6);
             syncControl.divisionBox.setBounds (syncArea.reduced (0, 4));
             cell.removeFromBottom (6);
         }

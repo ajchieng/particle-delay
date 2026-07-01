@@ -144,7 +144,7 @@ juce::Label* ParticleLookAndFeel::createSliderTextBox (juce::Slider& slider)
     label->setColour (juce::TextEditor::textColourId, ParticlePalette::textPrimary);
     label->setColour (juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
     label->setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
-    label->setFont (monoFont (16.0f));
+    label->setFont (monoFont (14.5f));
     label->setJustificationType (juce::Justification::centred);
 
     // The value read-out sits in a band across the centre of the knob. Let mouse
@@ -184,7 +184,7 @@ void ParticleLookAndFeel::drawComboBox (juce::Graphics& g, int width, int height
     g.drawRoundedRectangle (bounds, corner, 1.0f);
 
     // Chevron.
-    const float cx = (float) width - 10.0f;
+    const float cx = (float) width - 8.0f;
     const float cy = (float) height * 0.5f;
     juce::Path arrow;
     arrow.startNewSubPath (cx - 3.0f, cy - 1.6f);
@@ -200,19 +200,19 @@ juce::Label* ParticleLookAndFeel::createComboBoxTextBox (juce::ComboBox& box)
 
     label->setColour (juce::Label::textColourId, accentCyan);
     label->setColour (juce::TextEditor::textColourId, accentCyan);
-    label->setFont (monoFont (16.0f));
+    label->setFont (monoFont (12.5f));
 
     return label;
 }
 
 juce::Font ParticleLookAndFeel::getComboBoxFont (juce::ComboBox&)
 {
-    return monoFont (16.0f);
+    return monoFont (12.5f);
 }
 
 void ParticleLookAndFeel::positionComboBoxText (juce::ComboBox& box, juce::Label& label)
 {
-    label.setBounds (8, 1, box.getWidth() - 22, box.getHeight() - 2);
+    label.setBounds (7, 1, box.getWidth() - 18, box.getHeight() - 2);
     label.setFont (getComboBoxFont (box));
     label.setColour (juce::Label::textColourId, box.findColour (juce::ComboBox::textColourId));
     label.setColour (juce::TextEditor::textColourId, box.findColour (juce::ComboBox::textColourId));
@@ -235,7 +235,7 @@ void ParticleLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButto
     g.drawRoundedRectangle (bounds, corner, 1.0f);
 
     g.setColour (on ? colour : textDim);
-    g.setFont (monoFont (15.0f));
+    g.setFont (monoFont (13.5f));
     g.drawText (button.getButtonText(), bounds, juce::Justification::centred);
 }
 
@@ -270,7 +270,7 @@ void ParticleLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& b
 {
     juce::ignoreUnused (shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
 
-    g.setFont (monoFont (14.0f));
+    g.setFont (monoFont (12.5f));
     g.setColour (button.isEnabled() ? button.findColour (juce::TextButton::textColourOffId)
                                          .withAlpha (button.getToggleState() ? 1.0f : 0.75f)
                                     : textDim);
